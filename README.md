@@ -1,11 +1,12 @@
-# matou-dev/example1 — preuve SPI côté contenu
+# matou-dev/example1 — SPI proof on the content side
 
-Contenu minime (1 bloc / 1 item / 1 mob / 1 feature worldgen owned + 1 additif
-overworld) prouvant ce que la minimap prouve côté client, sur la même SPI.
-**Zéro import Minecraft** (gate `check`). Modid `example1`, namespace
-`example1:` (cf. `NAMES.md`).
+Minimal content (1 block / 1 item / 1 mob / 1 owned worldgen feature + 1
+overworld additive) proving on the content side what the minimap proves on
+the client side, over the same SPI.
+**Zero Minecraft import** (`check` gate). Modid `example1`, namespace
+`example1:` (see `NAMES.md`).
 
-M2 proof : `content/owned.matou` (block + item + mob + feature, namespace
+M2 proof: `content/owned.matou` (block + item + mob + feature, namespace
 `example1.content`) + `content/additive.matou` (late feature, namespace
 `example1.overworld`, references owned without replacing it). Pure jobs
 (`OwnedVeinJob`, `AdditiveScatterJob` + late `merge`) over `matou-spi`

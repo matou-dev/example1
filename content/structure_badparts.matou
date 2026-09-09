@@ -2,6 +2,7 @@ syntax 3
 namespace bad.parts
 
 from example1.structures use structure.well
+from cross.far use structure.far
 
 genre Block : Data
 field hardness : f32
@@ -16,9 +17,11 @@ field count : u32
 block b1
   hardness = 1.0
 
-# Wiring fixtures the parser accepts but the job refuses loudly:
-# loop is its own part (E_EXAMPLE_PARTS:cycle), ext lives in another
-# file (E_EXAMPLE_CONTENT:external part) — see ExampleCheck.
+# Wiring fixtures the parser accepts but the job treats strictly:
+# loop is its own part (E_EXAMPLE_PARTS:cycle); near/far form a cycle
+# across files with structure_cross.matou (E_EXAMPLE_PARTS:cycle with a
+# qualified chain); ext wires well from structure.matou through fromFiles
+# (E_EXAMPLE_CONTENT:unknown namespace via fromFile) — see ExampleCheck.
 structure loop
   anchor = 0, 64, 0
   size = 1, 1, 1
@@ -31,4 +34,11 @@ structure ext
   size = 1, 1, 1
   palette = [bad.parts:b1]
   parts = [example1.structures:well]
+  count = 1
+
+structure near
+  anchor = 6, 64, 6
+  size = 1, 1, 1
+  palette = [bad.parts:b1]
+  parts = [cross.far:far]
   count = 1

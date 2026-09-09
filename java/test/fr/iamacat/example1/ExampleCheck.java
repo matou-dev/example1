@@ -538,6 +538,195 @@ public final class ExampleCheck {
                         "content/structure_badparts.matou", "ext");
             }
         }, "structure external part");
+
+        // --- cross-file parts: ext wires well from structure.matou ---
+        final List<String> xfiles = Arrays.asList(
+                "content/structure_badparts.matou",
+                "content/structure.matou");
+        final StructurePlaceJob ext = StructurePlaceJob.fromFiles(
+                xfiles, "bad.parts:ext");
+        check(ext.id().equals(MatouId.of("bad.parts", "ext")), "cross id");
+        check(ext.contentCount() == 1, "cross content count 1");
+        check(ext.palette().equals(Arrays.asList("bad.parts:b1")),
+                "cross palette");
+        check(ext.parts().size() == 1
+                && ext.parts().get(0).id().equals(
+                        StructurePlaceJob.WELL),
+                "cross part well");
+        Map<MatouId, Object> xstates = new HashMap<MatouId, Object>();
+        xstates.put(MatouId.of("bad.parts", "ext"), Long.valueOf(1L));
+        List<String> x1 = ext.decide(new Snapshot(7L, xstates));
+        check(x1.equals(ext.decide(new Snapshot(7L, xstates))),
+                "cross pure");
+        check(x1.size() == 1 + 18, "cross 1 own + 18 part");
+        check(x1.get(0).endsWith(":bad.parts:b1"), "cross own first");
+        boolean xwall = true;
+        for (int i = 1; i < 19; i++) {
+            xwall &= x1.get(i).endsWith(
+                    ":example1.structures:hut_wall");
+        }
+        check(xwall, "cross part after own");
+        String[] xown = x1.get(0).split(":")[0].split(",");
+        String[] xpart = x1.get(1).split(":")[0].split(",");
+        check(Integer.parseInt(xown[0]) - Integer.parseInt(xpart[0]) == 5
+                && Integer.parseInt(xown[1])
+                        - Integer.parseInt(xpart[1]) == 0
+                && Integer.parseInt(xown[2])
+                        - Integer.parseInt(xpart[2]) == 5,
+                "cross shared offset");
+        Map<String, String> xalias = new HashMap<String, String>();
+        xalias.put("bad.parts:b1", "minecraft:stone");
+        xalias.put("example1.structures:hut_wall", "minecraft:stone");
+        final StructurePlaceJob xaliased = StructurePlaceJob.fromFiles(
+                xfiles, "bad.parts:ext", xalias);
+        Map<MatouId, Object> xastates = new HashMap<MatouId, Object>();
+        xastates.put(MatouId.of("bad.parts", "ext"), Long.valueOf(1L));
+        List<String> xacells =
+                xaliased.decide(new Snapshot(7L, xastates));
+        check(xacells.size() == 19, "cross alias decides 19");
+        boolean xstone = true;
+        for (String cell : xacells) {
+            xstone &= cell.endsWith(":minecraft:stone");
+        }
+        check(xstone, "cross alias all stone");
+        expectRefused(new Runnable() {
+            public void run() {
+                Map<String, String> partial = new HashMap<String, String>();
+                partial.put("example1.structures:hut_wall",
+                        "minecraft:stone");
+                StructurePlaceJob.fromFiles(xfiles, "bad.parts:ext",
+                        partial);
+            }
+        }, "cross alias unmapped palette");
+
+        // --- file-set refusals: unknown ns, dup ns, bad root, no files ---
+        expectRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.fromFiles(
+                        Collections.singletonList(
+                                "content/structure_badparts.matou"),
+                        "bad.parts:ext");
+            }
+        }, "cross unknown namespace");
+        final List<String> cfiles = Arrays.asList(
+                "content/structure_badparts.matou",
+                "content/structure_cross.matou");
+        expectRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.fromFiles(cfiles, "bad.parts:near");
+            }
+        }, "cross cycle");
+        expectRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.fromFiles(Arrays.asList(
+                        "content/structure.matou",
+                        "content/structure.matou"),
+                        "example1.structures:hut");
+            }
+        }, "cross duplicate namespace");
+        expectRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.fromFiles(xfiles, "ext");
+            }
+        }, "cross bare root");
+        expectRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.fromFiles(xfiles, "bad.parts:nope");
+            }
+        }, "cross missing root");
+        expectRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.fromFiles(
+                        Collections.<String>emptyList(),
+                        "bad.parts:ext");
+            }
+        }, "cross no files");
+        expectNullRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.fromFiles(null, "bad.parts:ext",
+                        Collections.<String, String>emptyMap());
+            }
+        }, "cross null files");
+        expectNullRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.fromFiles(xfiles, null,
+                        Collections.<String, String>emptyMap());
+            }
+        }, "cross null root");
+
+        // --- wired pack across files: ext root via operator keys ---
+        Map<String, String> cfgX = new HashMap<String, String>();
+        cfgX.put("ownedFile", "content/owned.matou");
+        cfgX.put("scatterFile", "content/additive.matou");
+        cfgX.put("structureFile", "content/structure_badparts.matou");
+        cfgX.put("structureFiles", "content/structure.matou");
+        cfgX.put("structureRoot", "bad.parts:ext");
+        ExamplePack viaCross = new ExamplePack();
+        viaCross.configure(cfgX);
+        Map<MatouId, Object> crossStates = viaCross.states(7L);
+        check(crossStates.size() == 3, "cross pack 3 states");
+        check(crossStates.get(MatouId.of("bad.parts", "ext"))
+                .equals(Long.valueOf(1L)), "cross pack ext count 1");
+        check(viaCross.jobs().size() == 3, "cross pack 3 jobs");
+        Snapshot crossSnap = new Snapshot(7L, crossStates);
+        check(viaCross.jobs().get(2).decide(crossSnap).size() == 19,
+                "cross pack decides 19");
+        final ExamplePack directCross = ExamplePack.fromFiles(
+                "content/owned.matou", "content/additive.matou", xfiles,
+                "bad.parts:ext",
+                Collections.<String, String>emptyMap());
+        check(directCross.states(7L).equals(crossStates),
+                "cross pack overload wires");
+        Map<String, String> cfgXS = new HashMap<String, String>(cfgX);
+        cfgXS.put("block.bad.parts:b1", "minecraft:stone");
+        cfgXS.put("block.example1.structures:hut_wall",
+                "minecraft:stone");
+        ExamplePack viaCrossStone = new ExamplePack();
+        viaCrossStone.configure(cfgXS);
+        List<String> xstoned = viaCrossStone.jobs().get(2).decide(
+                new Snapshot(7L, viaCrossStone.states(7L)));
+        check(xstoned.size() == 19, "cross pack alias decides 19");
+        boolean xallstone = true;
+        for (String cell : xstoned) {
+            xallstone &= cell.endsWith(":minecraft:stone");
+        }
+        check(xallstone, "cross pack alias all stone");
+        expectRefused(new Runnable() {
+            public void run() {
+                Map<String, String> args = new HashMap<String, String>();
+                args.put("ownedFile", "content/owned.matou");
+                args.put("scatterFile", "content/additive.matou");
+                args.put("structureRoot", "bad.parts:ext");
+                new ExamplePack().configure(args);
+            }
+        }, "cross pack root without files");
+        expectRefused(new Runnable() {
+            public void run() {
+                Map<String, String> args = new HashMap<String, String>();
+                args.put("ownedFile", "content/owned.matou");
+                args.put("scatterFile", "content/additive.matou");
+                args.put("structureFile",
+                        "content/structure_badparts.matou");
+                args.put("structureFiles",
+                        "content/structure.matou, ");
+                args.put("structureRoot", "bad.parts:ext");
+                new ExamplePack().configure(args);
+            }
+        }, "cross pack blank structureFiles entry");
+        expectNullRefused(new Runnable() {
+            public void run() {
+                ExamplePack.fromFiles("content/owned.matou",
+                        "content/additive.matou", null, "bad.parts:ext",
+                        Collections.<String, String>emptyMap());
+            }
+        }, "cross pack null files");
+        expectNullRefused(new Runnable() {
+            public void run() {
+                ExamplePack.fromFiles("content/owned.matou",
+                        "content/additive.matou", xfiles, null,
+                        Collections.<String, String>emptyMap());
+            }
+        }, "cross pack null root");
         Map<String, String> stoneAlias = new HashMap<String, String>();
         stoneAlias.put("example1.structures:hut_wall", "minecraft:stone");
         final StructurePlaceJob aliased = StructurePlaceJob.fromFile(

@@ -18,11 +18,16 @@ import java.util.Map;
  * beyond matou-spi.
  *
  * <p>Structure wiring is optional and additive: without
- * {@code structureFile} the pack stays the legacy 2-job pack (owned +
- * additive), so existing operators and the bridge template keep working
- * byte for byte; with it the pack also seals the composite {@code hut}
- * count and exposes its {@link StructurePlaceJob} (own volume plus the
- * {@code well} part tree) as third job. Palette aliases come from
+ * {@code structureFile} (nor {@code structureFiles}) the pack stays the
+ * legacy 2-job pack (owned + additive), so existing operators and the
+ * bridge template keep working byte for byte; with it the pack also seals
+ * the root structure count and exposes its {@link StructurePlaceJob} as
+ * third job (default root is the composite {@code hut}: own volume plus
+ * the {@code well} part tree). The root may live in another file:
+ * {@code structureFiles} lists extra content files (comma-separated) and
+ * {@code structureRoot} names the qualified {@code namespace:name} root
+ * (cross-file parts resolve through {@code fromFiles}, import strictness
+ * parser-enforced, file-set completeness wiring-enforced). Palette aliases come from
  * {@code block.<ref>} operator args ({@code content-ref -> landable
  * block}, strict both ways, empty = identity): content decides
  * <i>where</i>, the operator decides <i>what</i>, as with the wire block
@@ -35,6 +40,8 @@ public final class ExamplePack implements ConfigurablePack {
     static final String OWNED_KEY = "ownedFile";
     static final String SCATTER_KEY = "scatterFile";
     static final String STRUCTURE_KEY = "structureFile";
+    static final String STRUCTURE_FILES_KEY = "structureFiles";
+    static final String STRUCTURE_ROOT_KEY = "structureRoot";
     static final String BLOCK_ALIAS_PREFIX = "block.";
 
     private int ownedCount;
@@ -82,10 +89,24 @@ public final class ExamplePack implements ConfigurablePack {
         }
         ExamplePack ready;
         String structurePath = args.get(STRUCTURE_KEY);
-        if (structurePath == null) {
+        String extraPaths = args.get(STRUCTURE_FILES_KEY);
+        String structureRoot = args.get(STRUCTURE_ROOT_KEY);
+        if (structurePath == null && extraPaths == null) {
+            if (structureRoot != null) {
+                throw new IllegalArgumentException(
+                        "E_EXAMPLE_CONTENT:structureRoot without"
+                                + " structure file(s)");
+            }
             ready = fromFiles(owned, scatter);
         } else {
-            ready = fromFiles(owned, scatter, structurePath,
+            List<String> structPaths = new ArrayList<String>();
+            if (structurePath != null) {
+                structPaths.add(structurePath);
+            }
+            structPaths.addAll(splitPaths(extraPaths));
+            String root = structureRoot != null ? structureRoot
+                    : StructurePlaceJob.HUT.toString();
+            ready = fromFiles(owned, scatter, structPaths, root,
                     blockAliases(args));
         }
         this.ownedCount = ready.ownedCount;
@@ -144,10 +165,55 @@ public final class ExamplePack implements ConfigurablePack {
             throw new NullPointerException(
                     "E_EXAMPLE_CONTENT:null aliases");
         }
+        return fromFiles(ownedPath, scatterPath,
+                Collections.singletonList(structurePath),
+                StructurePlaceJob.HUT.toString(), aliases);
+    }
+
+    /**
+     * Parses owned/scatter plus a set of structure files once and wires
+     * the qualified {@code namespace:name} root with palette aliases
+     * (strict both ways over the whole cross-file tree). Loud on
+     * unreadable / unknown namespace / missing structure / unmapped
+     * palette / unknown alias — never defaulted.
+     */
+    public static ExamplePack fromFiles(String ownedPath,
+            String scatterPath, List<String> structurePaths,
+            String structureRoot, Map<String, String> aliases) {
+        if (structurePaths == null) {
+            throw new NullPointerException(
+                    "E_EXAMPLE_CONTENT:null structure files");
+        }
+        if (structureRoot == null) {
+            throw new NullPointerException(
+                    "E_EXAMPLE_CONTENT:null structure root");
+        }
+        if (aliases == null) {
+            throw new NullPointerException(
+                    "E_EXAMPLE_CONTENT:null aliases");
+        }
         ExamplePack legacy = fromFiles(ownedPath, scatterPath);
         return new ExamplePack(legacy.ownedCount, legacy.scatterCount,
-                StructurePlaceJob.fromFile(structurePath,
-                        StructurePlaceJob.HUT.name, aliases));
+                StructurePlaceJob.fromFiles(structurePaths, structureRoot,
+                        aliases));
+    }
+
+    /** Comma-separated path list; blank entries fail loudly, never skipped. */
+    static List<String> splitPaths(String raw) {
+        List<String> out = new ArrayList<String>();
+        if (raw == null) {
+            return out;
+        }
+        for (String token : raw.split(",", -1)) {
+            String path = token.trim();
+            if (path.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "E_EXAMPLE_CONTENT:bad structureFiles <" + raw
+                                + "> (blank entry)");
+            }
+            out.add(path);
+        }
+        return out;
     }
 
     /** Operator {@code block.<ref>} args, prefix stripped, order kept. */

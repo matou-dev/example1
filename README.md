@@ -12,10 +12,13 @@ M2 proof: `content/owned.matou` (block + item + mob + feature, namespace
 proof: `content/structure.matou` (syntax 3, namespace
 `example1.structures`, 2 blocks + 1 leaf + 1 composite) wired to the pure
 `StructurePlaceJob` (recursive parts: own volume first, shared occurrence
-offset; named semantic refusals incl. cycles; position-keyed
+offset; parts may live in other files via `fromFiles` — import strictness
+is parser-enforced, file-set completeness wiring-enforced; named semantic
+refusals incl. same-file and cross-file cycles; position-keyed
 owned/additive merge; `block.<ref>` palette aliases for landable blocks),
-sealed by `ExamplePack` as an optional third job (`structureFile` key; without it the legacy
-2-job pack is untouched). Pure jobs
+sealed by `ExamplePack` as an optional third job (`structureFile` key,
+plus `structureFiles`/`structureRoot` for a cross-file root; without them
+the legacy 2-job pack is untouched). Pure jobs
 (`OwnedVeinJob`, `AdditiveScatterJob` + late `merge`) over `matou-spi`
 snapshots; self-test `java/test`, gate `tools/check.sh` (zero-MC +
 sibling-SPI compile + py/java content parity).

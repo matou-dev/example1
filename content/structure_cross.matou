@@ -1,0 +1,26 @@
+syntax 3
+namespace cross.far
+
+from bad.parts use structure.near
+
+genre Block : Data
+field hardness : f32
+
+genre Structure : Data
+field anchor : vec3
+field size : vec3
+field palette : list<block_ref>
+field parts : list<structure_ref>
+field count : u32
+
+block slab
+  hardness = 3.0
+
+# Cross-file cycle half: far -> bad.parts:near -> cross.far:far
+# (E_EXAMPLE_PARTS:cycle with a qualified chain) — see ExampleCheck.
+structure far
+  anchor = 7, 64, 7
+  size = 1, 1, 1
+  palette = [cross.far:slab]
+  parts = [bad.parts:near]
+  count = 1

@@ -7,13 +7,27 @@ Full notes per tag: https://github.com/matou-dev/example1/releases.
 
 ## [Unreleased]
 
-- Recursive `parts`: `StructurePlaceJob` places composites (own volume
-  first, then parts depth-first in listed order, one shared plane offset
-  per occurrence so the composed shape survives addressing; a part's own
-  `count` is standalone-only). Cycles fail at wiring
-  (`E_EXAMPLE_PARTS:cycle`), cross-file parts fail
-  (`E_EXAMPLE_CONTENT:external part`) — never skipped. The pack now wires
-  the composite `hut` (own `hut_roof` palette + `well` part).
+- Cross-file `parts`: `StructurePlaceJob.fromFiles` wires a qualified
+  `namespace:name` root across a set of content files (one shared plane
+  offset per occurrence, own volume first, depth-first listed order —
+  unchanged). Import strictness stays parser-enforced
+  (`E_MATOU_UNKNOWN_REF` unless same namespace or declared via `from`);
+  file-set completeness is wiring-enforced (`E_EXAMPLE_CONTENT:unknown
+  namespace` when an imported namespace has no loaded file,
+  `E_EXAMPLE_CONTENT:duplicate namespace` on ambiguous files).
+  Same-file `fromFile` now delegates to it (identical behaviour for
+  same-file trees). Cycles carry qualified chains, same-file or
+  cross-file (`E_EXAMPLE_PARTS:cycle <bad.parts:near -> cross.far:far ->
+  bad.parts:near>`). Fixtures: `content/structure_cross.matou`
+  (`cross.far:far`, 1 block + 1 cycle half), `structure_badparts.matou`
+  gains `near` and wires `ext` across files in the gate (19 cells: 1 own
+  + 18 `well`, shared offset `(5,0,5)`).
+- Pack operator path for cross-file roots: `ExamplePack.fromFiles`
+  5-arg overload `(owned, scatter, structurePaths, structureRoot,
+  aliases)` plus `configure` keys `structureFiles` (comma-separated,
+  blank entries refused) and `structureRoot` (default stays the `hut`
+  qualified id, never recopied). `structureRoot` without file(s) fails
+  loudly. Single `structureFile` behaviour is byte-for-byte unchanged.
 - Palette aliases for the live run: `fromFile` 3-arg overload and
   `block.<ref>` pack args (`content-ref -> landable block`, empty =
   identity, otherwise strict both ways: unmapped entry, unknown key and

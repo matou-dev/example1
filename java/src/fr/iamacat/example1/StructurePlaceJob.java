@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -30,10 +31,14 @@ import java.util.Set;
  * volume of the occurrence shares one plane offset, so the composed shape
  * survives the per-tick addressing: part anchors stay absolute, the offset
  * shifts the whole tree. A part's own {@code count} applies to standalone
- * wiring only; as a part it is placed once per parent occurrence. Cycles
- * are refused at wiring ({@code E_EXAMPLE_PARTS:cycle}); parts outside
- * the wired file are refused ({@code E_EXAMPLE_CONTENT:external part},
- * cross-file composition is not wired yet) — never skipped silently.
+ * wiring only; as a part it is placed once per parent occurrence. Parts
+ * may live in other files ({@link #fromFiles}): import strictness is
+ * parser-enforced ({@code E_MATOU_UNKNOWN_REF} unless the part namespace
+ * is the file's own or declared via {@code from}), while file-set
+ * completeness is wiring-enforced ({@code E_EXAMPLE_CONTENT:unknown
+ * namespace} when an imported namespace has no loaded file). Cycles —
+ * same-file or cross-file — are refused at wiring
+ * ({@code E_EXAMPLE_PARTS:cycle}), never skipped silently.
  *
  * <p>Palette aliases ({@link #fromFile(String, String, Map)}): operator
  * bindings of content block refs to landable blocks (e.g. vanilla
@@ -176,9 +181,12 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
     /**
      * Wires one structure plus its part tree from a content file through
      * the SPI reference parser, once (never on the tick path). Identity
-     * palette (content refs land as-is). Loud on unreadable / unparsable
-     * / missing structure / malformed fields / cycles / external parts —
-     * never defaulted.
+     * palette (content refs land as-is). Single-file convenience over
+     * {@link #fromFiles}: parts outside this file are refused loudly
+     * ({@code E_EXAMPLE_CONTENT:unknown namespace} — rewire through
+     * {@code fromFiles} with every providing file). Loud on unreadable /
+     * unparsable / missing structure / malformed fields / cycles — never
+     * defaulted.
      */
     public static StructurePlaceJob fromFile(String path, String name) {
         return fromFile(path, name,
@@ -206,99 +214,193 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
             throw new NullPointerException(
                     "E_EXAMPLE_CONTENT:null aliases");
         }
-        Map<String, Object> tree;
+        String namespace =
+                String.valueOf(parseTree(path).get("namespace"));
+        return fromFiles(Collections.singletonList(path),
+                namespace + ":" + name, aliases);
+    }
+
+    /**
+     * Wires one structure plus its part tree from a set of content files,
+     * parsed once each through the SPI reference parser (never on the
+     * tick path). Identity palette (content refs land as-is). The root is
+     * a qualified {@code namespace:name}; parts resolve in whichever
+     * loaded file provides their namespace, depth-first in listed order.
+     * Loud on unreadable / unparsable / unknown namespace / missing
+     * structure / malformed fields / duplicate namespace / cycles — never
+     * defaulted.
+     */
+    public static StructurePlaceJob fromFiles(List<String> paths,
+            String qualifiedName) {
+        return fromFiles(paths, qualifiedName,
+                Collections.<String, String>emptyMap());
+    }
+
+    /**
+     * Wires one structure plus its part tree from a set of content files
+     * with palette aliases ({@code content-ref -> landable block}). An
+     * empty map is the identity; a non-empty map must cover every palette
+     * entry of the whole cross-file tree and hold no foreign key, else
+     * wiring fails loudly.
+     */
+    @SuppressWarnings("unchecked")
+    public static StructurePlaceJob fromFiles(List<String> paths,
+            String qualifiedName, Map<String, String> aliases) {
+        if (paths == null) {
+            throw new NullPointerException(
+                    "E_EXAMPLE_CONTENT:null structure files");
+        }
+        if (qualifiedName == null) {
+            throw new NullPointerException(
+                    "E_EXAMPLE_CONTENT:null structure name");
+        }
+        if (aliases == null) {
+            throw new NullPointerException(
+                    "E_EXAMPLE_CONTENT:null aliases");
+        }
+        if (paths.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "E_EXAMPLE_CONTENT:no structure files");
+        }
+        Map<String, FileModel> files = loadFiles(paths);
+        MatouId root = MatouId.parse(qualifiedName);
+        if (!files.containsKey(root.namespace)) {
+            throw new IllegalArgumentException(
+                    "E_EXAMPLE_CONTENT:unknown namespace <"
+                            + root.namespace + "> for root <"
+                            + qualifiedName + "> (loaded "
+                            + new ArrayList<String>(files.keySet()) + ")");
+        }
+        Set<String> used = new HashSet<String>();
+        StructurePlaceJob job = resolveRef(files, null, root.namespace,
+                root.name, new ArrayList<String>(), aliases, used);
+        for (String key : aliases.keySet()) {
+            if (!used.contains(key)) {
+                throw new IllegalArgumentException(
+                        "E_EXAMPLE_CONTENT:unknown alias <" + key
+                                + "> for <" + qualifiedName + ">");
+            }
+        }
+        return job;
+    }
+
+    /** One parsed content file: namespace plus structures by local name. */
+    private static final class FileModel {
+        final String path;
+        final String namespace;
+        final Map<String, Map<String, Object>> structures;
+
+        FileModel(String path, String namespace,
+                Map<String, Map<String, Object>> structures) {
+            this.path = path;
+            this.namespace = namespace;
+            this.structures = structures;
+        }
+    }
+
+    private static Map<String, Object> parseTree(String path) {
         try {
-            tree = MatouParse.parseFile(path);
+            return MatouParse.parseFile(path);
         } catch (Exception e) {
             throw new IllegalArgumentException(
                     "E_EXAMPLE_CONTENT:unreadable <" + path + "> ("
                             + e.getMessage() + ")");
         }
-        String namespace = String.valueOf(tree.get("namespace"));
-        Map<String, Map<String, Object>> byName =
-                new HashMap<String, Map<String, Object>>();
-        Object instances = tree.get("instances");
-        if (instances instanceof List) {
-            for (Object o : (List<Object>) instances) {
-                if (!(o instanceof Map)) {
-                    continue;
-                }
-                Map<String, Object> inst = (Map<String, Object>) o;
-                if (!"Structure".equals(inst.get("decl"))) {
-                    continue;
-                }
-                Object fields = inst.get("fields");
-                if (fields instanceof Map) {
-                    byName.put(String.valueOf(inst.get("name")),
-                            (Map<String, Object>) fields);
-                }
-            }
-        }
-        if (!byName.containsKey(name)) {
-            throw new IllegalArgumentException(
-                    "E_EXAMPLE_CONTENT:missing structure <" + name
-                            + "> in <" + path + ">");
-        }
-        Set<String> used = new HashSet<String>();
-        StructurePlaceJob root = resolve(path, namespace, byName, name,
-                new ArrayList<String>(), aliases, used);
-        for (String key : aliases.keySet()) {
-            if (!used.contains(key)) {
-                throw new IllegalArgumentException(
-                        "E_EXAMPLE_CONTENT:unknown alias <" + key
-                                + "> in <" + path + ">");
-            }
-        }
-        return root;
     }
 
-    private static StructurePlaceJob resolve(String path, String namespace,
-            Map<String, Map<String, Object>> byName, String name,
-            List<String> chain, Map<String, String> aliases,
-            Set<String> used) {
-        if (chain.contains(name)) {
-            List<String> cycle = new ArrayList<String>(chain);
-            cycle.add(name);
-            throw new IllegalArgumentException(
-                    "E_EXAMPLE_PARTS:cycle <" + join(cycle, " -> ")
-                            + "> in <" + path + ">");
+    @SuppressWarnings("unchecked")
+    private static Map<String, FileModel> loadFiles(List<String> paths) {
+        Map<String, FileModel> files =
+                new LinkedHashMap<String, FileModel>();
+        for (String path : paths) {
+            if (path == null) {
+                throw new NullPointerException(
+                        "E_EXAMPLE_CONTENT:null structure path");
+            }
+            Map<String, Object> tree = parseTree(path);
+            String namespace = String.valueOf(tree.get("namespace"));
+            if (files.containsKey(namespace)) {
+                throw new IllegalArgumentException(
+                        "E_EXAMPLE_CONTENT:duplicate namespace <"
+                                + namespace + "> (<"
+                                + files.get(namespace).path + "> vs <"
+                                + path + ">)");
+            }
+            Map<String, Map<String, Object>> byName =
+                    new HashMap<String, Map<String, Object>>();
+            Object instances = tree.get("instances");
+            if (instances instanceof List) {
+                for (Object o : (List<Object>) instances) {
+                    if (!(o instanceof Map)) {
+                        continue;
+                    }
+                    Map<String, Object> inst = (Map<String, Object>) o;
+                    if (!"Structure".equals(inst.get("decl"))) {
+                        continue;
+                    }
+                    Object fields = inst.get("fields");
+                    if (fields instanceof Map) {
+                        byName.put(String.valueOf(inst.get("name")),
+                                (Map<String, Object>) fields);
+                    }
+                }
+            }
+            files.put(namespace,
+                    new FileModel(path, namespace, byName));
         }
-        Map<String, Object> f = byName.get(name);
+        return files;
+    }
+
+    private static StructurePlaceJob resolveRef(
+            Map<String, FileModel> files, FileModel referrer, String refNs,
+            String refName, List<String> chain,
+            Map<String, String> aliases, Set<String> used) {
+        String qualified = refNs + ":" + refName;
+        if (chain.contains(qualified)) {
+            List<String> cycle = new ArrayList<String>(chain);
+            cycle.add(qualified);
+            throw new IllegalArgumentException(
+                    "E_EXAMPLE_PARTS:cycle <" + join(cycle, " -> ") + ">");
+        }
+        FileModel target = files.get(refNs);
+        if (target == null) {
+            String where = referrer == null ? "root <" + qualified + ">"
+                    : "in <" + referrer.path + ">";
+            throw new IllegalArgumentException(
+                    "E_EXAMPLE_CONTENT:unknown namespace <" + refNs
+                            + "> for <" + qualified + "> " + where
+                            + " (no loaded file provides it — pass every"
+                            + " providing file to fromFiles)");
+        }
+        Map<String, Object> f = target.structures.get(refName);
         if (f == null) {
             throw new IllegalArgumentException(
-                    "E_EXAMPLE_CONTENT:missing structure <" + name
-                            + "> in <" + path + ">");
+                    "E_EXAMPLE_CONTENT:missing structure <" + qualified
+                            + "> in <" + target.path + ">");
         }
-        List<String> rawParts = refsOf(f.get("parts"), "parts", name, path);
+        List<String> rawParts =
+                refsOf(f.get("parts"), "parts", refName, target.path);
         List<String> visiting = new ArrayList<String>(chain);
-        visiting.add(name);
+        visiting.add(qualified);
         List<StructurePlaceJob> parts =
                 new ArrayList<StructurePlaceJob>(rawParts.size());
         for (String ref : rawParts) {
             int cut = ref.indexOf(':');
             if (cut < 0) {
                 throw new IllegalArgumentException(
-                        "E_EXAMPLE_CONTENT:bad parts <" + name + "> in <"
-                                + path + ">");
+                        "E_EXAMPLE_CONTENT:bad parts <" + refName + "> in <"
+                                + target.path + ">");
             }
-            String refNs = ref.substring(0, cut);
-            String refName = ref.substring(cut + 1);
-            if (!refNs.equals(namespace)) {
-                throw new IllegalArgumentException(
-                        "E_EXAMPLE_CONTENT:external part <" + ref
-                                + "> in <" + path
-                                + "> (cross-file composition not wired)");
-            }
-            parts.add(resolve(path, namespace, byName, refName, visiting,
-                    aliases, used));
+            parts.add(resolveRef(files, target, ref.substring(0, cut),
+                    ref.substring(cut + 1), visiting, aliases, used));
         }
-        return new StructurePlaceJob(MatouId.of(namespace, name),
-                intsOf(f.get("anchor"), "anchor", name, path),
-                intsOf(f.get("size"), "size", name, path),
-                substitute(refsOf(f.get("palette"), "palette", name, path),
-                        aliases, used, name, path),
+        return new StructurePlaceJob(MatouId.of(refNs, refName),
+                intsOf(f.get("anchor"), "anchor", refName, target.path),
+                intsOf(f.get("size"), "size", refName, target.path),
+                substitute(refsOf(f.get("palette"), "palette", refName,
+                        target.path), aliases, used, refName, target.path),
                 Collections.unmodifiableList(parts),
-                numOf(f.get("count"), "count", name, path));
+                numOf(f.get("count"), "count", refName, target.path));
     }
 
     private static List<String> substitute(List<String> palette,

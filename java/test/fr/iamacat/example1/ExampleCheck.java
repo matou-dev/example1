@@ -227,6 +227,70 @@ public final class ExampleCheck {
         viaCfg.configure(cfg);
         check(viaCfg.states(7L).equals(packStates), "pack configure wires");
 
+        // --- wired pack: structure states + third job, legacy path intact ---
+        final ExamplePack wired = ExamplePack.fromFiles(
+                "content/owned.matou", "content/additive.matou",
+                "content/structure.matou");
+        check(wired.namespace().equals("example1"), "wired namespace");
+        Map<MatouId, Object> wiredStates = wired.states(7L);
+        check(wiredStates.size() == 3, "wired 3 states");
+        check(wiredStates.get(StructurePlaceJob.WELL)
+                .equals(Long.valueOf(1L)), "wired structure count 1");
+        check(!packStates.containsKey(StructurePlaceJob.WELL),
+                "legacy no structure state");
+        check(wired.jobs().size() == 3, "wired 3 jobs");
+        check(viaCfg.jobs().size() == 2, "pack configure legacy 2 jobs");
+        Snapshot wiredSnap = new Snapshot(7L, wiredStates);
+        check(wired.jobs().get(0).decide(wiredSnap).size() == 8,
+                "wired owned decides 8");
+        check(wired.jobs().get(1).decide(wiredSnap).size() == 4,
+                "wired additive decides 4");
+        check(wired.jobs().get(2).decide(wiredSnap).size() == 18,
+                "wired structure decides 18");
+        check(wired.jobs().get(2) instanceof StructurePlaceJob,
+                "wired third is structure");
+        final StructurePlaceJob wellJob = StructurePlaceJob.fromFile(
+                "content/structure.matou", "well");
+        final ExamplePack viaCtor = new ExamplePack(8, 4, wellJob);
+        check(viaCtor.states(7L).equals(wiredStates),
+                "pack ctor wires structure");
+        check(viaCtor.jobs().size() == 3, "pack ctor 3 jobs");
+        expectNullRefused(new Runnable() {
+            public void run() {
+                new ExamplePack(8, 4, null);
+            }
+        }, "pack null structure job");
+        expectNullRefused(new Runnable() {
+            public void run() {
+                ExamplePack.fromFiles("content/owned.matou",
+                        "content/additive.matou", null);
+            }
+        }, "pack null structure path");
+        expectRefused(new Runnable() {
+            public void run() {
+                ExamplePack.fromFiles("content/owned.matou",
+                        "content/additive.matou", "content/nope.matou");
+            }
+        }, "pack bad structure path");
+        Map<String, String> cfg3 = new HashMap<String, String>();
+        cfg3.put("ownedFile", "content/owned.matou");
+        cfg3.put("scatterFile", "content/additive.matou");
+        cfg3.put("structureFile", "content/structure.matou");
+        ExamplePack viaCfg3 = new ExamplePack();
+        viaCfg3.configure(cfg3);
+        check(viaCfg3.states(7L).equals(wiredStates),
+                "pack configure wires structure");
+        check(viaCfg3.jobs().size() == 3, "pack configure 3 jobs");
+        expectRefused(new Runnable() {
+            public void run() {
+                Map<String, String> args = new HashMap<String, String>();
+                args.put("ownedFile", "content/owned.matou");
+                args.put("scatterFile", "content/additive.matou");
+                args.put("structureFile", "content/nope.matou");
+                new ExamplePack().configure(args);
+            }
+        }, "pack bad structureFile");
+
         // --- structure job: pure leaf placement, named semantic refusals ---
         final StructurePlaceJob well = StructurePlaceJob.fromFile(
                 "content/structure.matou", "well");

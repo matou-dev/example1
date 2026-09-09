@@ -15,8 +15,14 @@ Full notes per tag: https://github.com/matou-dev/example1/releases.
   `E_EXAMPLE_SIZE` (non-positive extents), `E_EXAMPLE_PALETTE` (empty),
   `E_EXAMPLE_PARTS` (non-leaf refused at wiring until recursive placement
   lands). Position-keyed owned/additive `merge` (owned block never
-  replaced). `ExamplePack` untouched on purpose (bridge calls its 2-arg
-  `fromFiles`); pack wiring for structures is follow-up.
+  replaced). `ExamplePack` wires the proof (additive, backward compatible):
+  optional `structureFile` key in `configure`, `fromFiles` 3-arg overload
+  and `ExamplePack(int, int, StructurePlaceJob)` ctor; wired packs seal the
+  leaf `well` count in `states` and expose the job as third entry of
+  `jobs()` (owned first, per contract). Without `structureFile` the pack
+  stays the legacy 2-job pack (bridge template untouched). Decide path
+  fully wired; landing `x,y,z:block` cells on a Forge sink is bridge
+  follow-up (`ForgeCells` only parses `"x,z"`, loudly).
 
 - CI: runner pinned (`ubuntu-24.04`), JDK 21 via `setup-java` (temurin),
   actions pinned by SHA with Dependabot, missing `spi` sibling checkout

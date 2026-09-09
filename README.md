@@ -12,7 +12,9 @@ M2 proof: `content/owned.matou` (block + item + mob + feature, namespace
 proof: `content/structure.matou` (syntax 3, namespace
 `example1.structures`, 1 leaf + 1 composite) wired to the pure
 `StructurePlaceJob` (cells from anchor/size/palette, named semantic
-refusals, position-keyed owned/additive merge). Pure jobs
+refusals, position-keyed owned/additive merge), sealed by `ExamplePack`
+as an optional third job (`structureFile` key; without it the legacy
+2-job pack is untouched). Pure jobs
 (`OwnedVeinJob`, `AdditiveScatterJob` + late `merge`) over `matou-spi`
 snapshots; self-test `java/test`, gate `tools/check.sh` (zero-MC +
 sibling-SPI compile + py/java content parity).

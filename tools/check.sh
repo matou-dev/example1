@@ -1,7 +1,8 @@
 #!/bin/sh
 # Gate zero-MC-import (Q2 strict) : aucun import Minecraft/Forge hors bridge.
 set -eu
-cd "$(dirname "$0")/.."
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+cd "$SCRIPT_DIR/.."
 hits=$(rg -n --no-heading "net\.minecraft|cpw\.mods\.|net\.minecraftforge" \
   --glob '!tools/**' --glob '!.git/**' --glob '!*.md' --glob '!java/build/**' . || true)
 if [ -n "$hits" ]; then
@@ -20,4 +21,4 @@ javac --release 8 -d java/build $(find "$SPI" java/src -name '*.java')
 javac --release 8 -cp java/build -d java/build $(find java/test -name '*.java')
 java -cp java/build fr.iamacat.example1.ExampleCheck
 # M2 parity gate : sibling SPI parsers (py ref + java port) agree on content.
-python3 "$(dirname "$0")/check_content.py"
+python3 "$SCRIPT_DIR/check_content.py"

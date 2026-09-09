@@ -1,0 +1,34 @@
+syntax 3
+namespace bad.parts
+
+from example1.structures use structure.well
+
+genre Block : Data
+field hardness : f32
+
+genre Structure : Data
+field anchor : vec3
+field size : vec3
+field palette : list<block_ref>
+field parts : list<structure_ref>
+field count : u32
+
+block b1
+  hardness = 1.0
+
+# Wiring fixtures the parser accepts but the job refuses loudly:
+# loop is its own part (E_EXAMPLE_PARTS:cycle), ext lives in another
+# file (E_EXAMPLE_CONTENT:external part) — see ExampleCheck.
+structure loop
+  anchor = 0, 64, 0
+  size = 1, 1, 1
+  palette = [bad.parts:b1]
+  parts = [bad.parts:loop]
+  count = 1
+
+structure ext
+  anchor = 5, 64, 5
+  size = 1, 1, 1
+  palette = [bad.parts:b1]
+  parts = [example1.structures:well]
+  count = 1

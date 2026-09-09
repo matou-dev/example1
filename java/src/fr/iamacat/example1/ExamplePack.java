@@ -20,17 +20,22 @@ import java.util.Map;
  * <p>Structure wiring is optional and additive: without
  * {@code structureFile} the pack stays the legacy 2-job pack (owned +
  * additive), so existing operators and the bridge template keep working
- * byte for byte; with it the pack also seals the leaf structure count and
- * exposes the {@link StructurePlaceJob} as third job. The decide path is
- * fully wired (pure, shape-agnostic merge); landing {@code x,y,z:block}
- * cells on a Forge sink is bridge follow-up ({@code ForgeCells} only
- * parses {@code "x,z"} and refuses anything else loudly).
+ * byte for byte; with it the pack also seals the composite {@code hut}
+ * count and exposes its {@link StructurePlaceJob} (own volume plus the
+ * {@code well} part tree) as third job. Palette aliases come from
+ * {@code block.<ref>} operator args ({@code content-ref -> landable
+ * block}, strict both ways, empty = identity): content decides
+ * <i>where</i>, the operator decides <i>what</i>, as with the wire block
+ * of plane cells. The decide path is fully wired (pure, shape-agnostic
+ * merge); landing {@code x,y,z:block} cells needs a 3D-capable sink
+ * (bridge {@code WorldCellSink}).
  */
 public final class ExamplePack implements ConfigurablePack {
     public static final String NAMESPACE = "example1";
     static final String OWNED_KEY = "ownedFile";
     static final String SCATTER_KEY = "scatterFile";
     static final String STRUCTURE_KEY = "structureFile";
+    static final String BLOCK_ALIAS_PREFIX = "block.";
 
     private int ownedCount;
     private int scatterCount;
@@ -80,7 +85,8 @@ public final class ExamplePack implements ConfigurablePack {
         if (structurePath == null) {
             ready = fromFiles(owned, scatter);
         } else {
-            ready = fromFiles(owned, scatter, structurePath);
+            ready = fromFiles(owned, scatter, structurePath,
+                    blockAliases(args));
         }
         this.ownedCount = ready.ownedCount;
         this.scatterCount = ready.scatterCount;
@@ -111,20 +117,50 @@ public final class ExamplePack implements ConfigurablePack {
 
     /**
      * Parses all three content files once; the structure file wires the
-     * leaf {@code well} (name derived from {@link StructurePlaceJob#WELL},
-     * never recopied). Loud on unreadable / missing structure — never
-     * defaulted.
+     * composite {@code hut} (name derived from {@link StructurePlaceJob#HUT},
+     * never recopied) with identity palette. Loud on unreadable / missing
+     * structure — never defaulted.
      */
     public static ExamplePack fromFiles(String ownedPath,
             String scatterPath, String structurePath) {
+        return fromFiles(ownedPath, scatterPath, structurePath,
+                Collections.<String, String>emptyMap());
+    }
+
+    /**
+     * Parses all three content files once with palette aliases
+     * ({@code content-ref -> landable block}, strict both ways). Loud on
+     * unreadable / missing structure / unmapped palette / unknown alias —
+     * never defaulted.
+     */
+    public static ExamplePack fromFiles(String ownedPath,
+            String scatterPath, String structurePath,
+            Map<String, String> aliases) {
         if (structurePath == null) {
             throw new NullPointerException(
                     "E_EXAMPLE_CONTENT:null structure path");
         }
+        if (aliases == null) {
+            throw new NullPointerException(
+                    "E_EXAMPLE_CONTENT:null aliases");
+        }
         ExamplePack legacy = fromFiles(ownedPath, scatterPath);
         return new ExamplePack(legacy.ownedCount, legacy.scatterCount,
                 StructurePlaceJob.fromFile(structurePath,
-                        StructurePlaceJob.WELL.name));
+                        StructurePlaceJob.HUT.name, aliases));
+    }
+
+    /** Operator {@code block.<ref>} args, prefix stripped, order kept. */
+    static Map<String, String> blockAliases(Map<String, String> args) {
+        Map<String, String> aliases = new LinkedHashMap<String, String>();
+        for (Map.Entry<String, String> e : args.entrySet()) {
+            if (e.getKey() != null
+                    && e.getKey().startsWith(BLOCK_ALIAS_PREFIX)) {
+                aliases.put(e.getKey().substring(
+                        BLOCK_ALIAS_PREFIX.length()), e.getValue());
+            }
+        }
+        return aliases;
     }
 
     private static Map<String, Object> parse(String path) {

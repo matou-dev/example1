@@ -10,10 +10,11 @@ M2 proof: `content/owned.matou` (block + item + mob + feature, namespace
 `example1.content`) + `content/additive.matou` (late feature, namespace
 `example1.overworld`, references owned without replacing it). Structure
 proof: `content/structure.matou` (syntax 3, namespace
-`example1.structures`, 1 leaf + 1 composite) wired to the pure
-`StructurePlaceJob` (cells from anchor/size/palette, named semantic
-refusals, position-keyed owned/additive merge), sealed by `ExamplePack`
-as an optional third job (`structureFile` key; without it the legacy
+`example1.structures`, 2 blocks + 1 leaf + 1 composite) wired to the pure
+`StructurePlaceJob` (recursive parts: own volume first, shared occurrence
+offset; named semantic refusals incl. cycles; position-keyed
+owned/additive merge; `block.<ref>` palette aliases for landable blocks),
+sealed by `ExamplePack` as an optional third job (`structureFile` key; without it the legacy
 2-job pack is untouched). Pure jobs
 (`OwnedVeinJob`, `AdditiveScatterJob` + late `merge`) over `matou-spi`
 snapshots; self-test `java/test`, gate `tools/check.sh` (zero-MC +

@@ -14,6 +14,9 @@ field count : u32
 block hut_wall
   hardness = 4.0
 
+block hut_roof
+  hardness = 2.0
+
 # Leaf proof target: StructurePlaceJob places this volume (3*2*3 = 18 cells).
 structure well
   anchor = 0, 64, 0
@@ -22,11 +25,13 @@ structure well
   parts = []
   count = 1
 
-# Composite shape lock: the parser accepts ordered forward parts, the deciding
-# job refuses non-leaf loudly (E_EXAMPLE_PARTS) until recursive placement lands.
+# Composite: places its own volume first, then parts in listed order
+# (landing order decides overlaps). Its palette differs from its part's,
+# so the order is block-labelled (see ExampleCheck): own cells are
+# hut_roof, part cells hut_wall.
 structure hut
   anchor = 10, 64, -4
   size = 2, 2, 2
-  palette = [example1.structures:hut_wall]
+  palette = [example1.structures:hut_roof]
   parts = [example1.structures:well]
   count = 2

@@ -227,17 +227,19 @@ public final class ExampleCheck {
         viaCfg.configure(cfg);
         check(viaCfg.states(7L).equals(packStates), "pack configure wires");
 
-        // --- wired pack: structure states + third job, legacy path intact ---
+        // --- wired pack: composite hut + aliases, legacy path intact ---
         final ExamplePack wired = ExamplePack.fromFiles(
                 "content/owned.matou", "content/additive.matou",
                 "content/structure.matou");
         check(wired.namespace().equals("example1"), "wired namespace");
         Map<MatouId, Object> wiredStates = wired.states(7L);
         check(wiredStates.size() == 3, "wired 3 states");
-        check(wiredStates.get(StructurePlaceJob.WELL)
-                .equals(Long.valueOf(1L)), "wired structure count 1");
+        check(wiredStates.get(StructurePlaceJob.HUT)
+                .equals(Long.valueOf(2L)), "wired hut count 2");
+        check(!packStates.containsKey(StructurePlaceJob.HUT),
+                "legacy no hut state");
         check(!packStates.containsKey(StructurePlaceJob.WELL),
-                "legacy no structure state");
+                "legacy no well state");
         check(wired.jobs().size() == 3, "wired 3 jobs");
         check(viaCfg.jobs().size() == 2, "pack configure legacy 2 jobs");
         Snapshot wiredSnap = new Snapshot(7L, wiredStates);
@@ -245,13 +247,13 @@ public final class ExampleCheck {
                 "wired owned decides 8");
         check(wired.jobs().get(1).decide(wiredSnap).size() == 4,
                 "wired additive decides 4");
-        check(wired.jobs().get(2).decide(wiredSnap).size() == 18,
-                "wired structure decides 18");
+        check(wired.jobs().get(2).decide(wiredSnap).size() == 2 * (8 + 18),
+                "wired hut decides 52");
         check(wired.jobs().get(2) instanceof StructurePlaceJob,
                 "wired third is structure");
-        final StructurePlaceJob wellJob = StructurePlaceJob.fromFile(
-                "content/structure.matou", "well");
-        final ExamplePack viaCtor = new ExamplePack(8, 4, wellJob);
+        final StructurePlaceJob hutJob = StructurePlaceJob.fromFile(
+                "content/structure.matou", "hut");
+        final ExamplePack viaCtor = new ExamplePack(8, 4, hutJob);
         check(viaCtor.states(7L).equals(wiredStates),
                 "pack ctor wires structure");
         check(viaCtor.jobs().size() == 3, "pack ctor 3 jobs");
@@ -266,6 +268,13 @@ public final class ExampleCheck {
                         "content/additive.matou", null);
             }
         }, "pack null structure path");
+        expectNullRefused(new Runnable() {
+            public void run() {
+                ExamplePack.fromFiles("content/owned.matou",
+                        "content/additive.matou",
+                        "content/structure.matou", null);
+            }
+        }, "pack null aliases");
         expectRefused(new Runnable() {
             public void run() {
                 ExamplePack.fromFiles("content/owned.matou",
@@ -290,6 +299,48 @@ public final class ExampleCheck {
                 new ExamplePack().configure(args);
             }
         }, "pack bad structureFile");
+        Map<String, String> cfgA = new HashMap<String, String>();
+        cfgA.put("ownedFile", "content/owned.matou");
+        cfgA.put("scatterFile", "content/additive.matou");
+        cfgA.put("structureFile", "content/structure.matou");
+        cfgA.put("block.example1.structures:hut_wall", "minecraft:stone");
+        cfgA.put("block.example1.structures:hut_roof", "minecraft:stone");
+        ExamplePack viaAlias = new ExamplePack();
+        viaAlias.configure(cfgA);
+        check(viaAlias.jobs().size() == 3, "pack alias 3 jobs");
+        List<String> allied = viaAlias.jobs().get(2).decide(
+                new Snapshot(7L, viaAlias.states(7L)));
+        check(allied.size() == 52, "pack alias decides 52");
+        boolean allStone = true;
+        for (String cell : allied) {
+            allStone &= cell.endsWith(":minecraft:stone");
+        }
+        check(allStone, "pack alias all stone");
+        expectRefused(new Runnable() {
+            public void run() {
+                Map<String, String> args = new HashMap<String, String>();
+                args.put("ownedFile", "content/owned.matou");
+                args.put("scatterFile", "content/additive.matou");
+                args.put("structureFile", "content/structure.matou");
+                args.put("block.example1.structures:hut_roof",
+                        "minecraft:stone");
+                new ExamplePack().configure(args);
+            }
+        }, "pack partial aliases");
+        expectRefused(new Runnable() {
+            public void run() {
+                Map<String, String> args = new HashMap<String, String>();
+                args.put("ownedFile", "content/owned.matou");
+                args.put("scatterFile", "content/additive.matou");
+                args.put("structureFile", "content/structure.matou");
+                args.put("block.example1.structures:hut_wall",
+                        "minecraft:stone");
+                args.put("block.example1.structures:hut_roof",
+                        "minecraft:stone");
+                args.put("block.bogus:thing", "minecraft:dirt");
+                new ExamplePack().configure(args);
+            }
+        }, "pack bogus alias");
 
         // --- structure job: pure leaf placement, named semantic refusals ---
         final StructurePlaceJob well = StructurePlaceJob.fromFile(
@@ -361,9 +412,7 @@ public final class ExampleCheck {
         final int[] anchor = new int[]{0, 64, 0};
         final List<String> pal =
                 Arrays.asList("example1.structures:hut_wall");
-        final List<String> noParts = Collections.emptyList();
-        final List<String> someParts =
-                Arrays.asList("example1.structures:well");
+        final List<StructurePlaceJob> noParts = Collections.emptyList();
         expectRefused(new Runnable() {
             public void run() {
                 new StructurePlaceJob(StructurePlaceJob.WELL, anchor,
@@ -386,15 +435,37 @@ public final class ExampleCheck {
         expectRefused(new Runnable() {
             public void run() {
                 new StructurePlaceJob(StructurePlaceJob.WELL, anchor,
-                        new int[]{3, 2, 3}, pal, someParts, 1);
-            }
-        }, "structure non-leaf parts");
-        expectRefused(new Runnable() {
-            public void run() {
-                new StructurePlaceJob(StructurePlaceJob.WELL, anchor,
                         new int[]{3, 2, 3}, pal, noParts, 0);
             }
         }, "structure count 0");
+        final StructurePlaceJob built = new StructurePlaceJob(
+                StructurePlaceJob.HUT, new int[]{10, 64, -4},
+                new int[]{2, 2, 2},
+                Arrays.asList("example1.structures:hut_roof"),
+                Arrays.asList(well), 2);
+        check(built.parts().size() == 1
+                && built.parts().get(0).equals(well),
+                "ctor composite parts");
+        try {
+            built.parts().add(well);
+            check(false, "structure parts immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : structure parts immutable");
+        }
+        expectNullRefused(new Runnable() {
+            public void run() {
+                new StructurePlaceJob(StructurePlaceJob.WELL, anchor,
+                        new int[]{3, 2, 3}, pal, null, 1);
+            }
+        }, "structure null parts");
+        expectNullRefused(new Runnable() {
+            public void run() {
+                new StructurePlaceJob(StructurePlaceJob.WELL, anchor,
+                        new int[]{3, 2, 3}, pal,
+                        Collections.<StructurePlaceJob>singletonList(null),
+                        1);
+            }
+        }, "structure null part");
         expectNullRefused(new Runnable() {
             public void run() {
                 new StructurePlaceJob(StructurePlaceJob.WELL, null,
@@ -407,12 +478,114 @@ public final class ExampleCheck {
                         new int[]{3, 2, 3}, null, noParts, 1);
             }
         }, "structure null palette");
+        // --- composite: own volume first, parts in order, shared offset ---
+        final StructurePlaceJob hut = StructurePlaceJob.fromFile(
+                "content/structure.matou", "hut");
+        check(hut.id().equals(StructurePlaceJob.HUT), "composite id");
+        check(hut.contentCount() == 2, "composite content count 2");
+        check(hut.palette().equals(
+                Arrays.asList("example1.structures:hut_roof")),
+                "composite palette");
+        check(hut.parts().size() == 1
+                && hut.parts().get(0).id().equals(
+                        StructurePlaceJob.WELL),
+                "composite part well");
+        Map<MatouId, Object> hstates = new HashMap<MatouId, Object>();
+        hstates.put(StructurePlaceJob.HUT, Long.valueOf(1L));
+        List<String> h1 = hut.decide(new Snapshot(7L, hstates));
+        check(h1.equals(hut.decide(new Snapshot(7L, hstates))),
+                "composite pure");
+        check(h1.size() == 8 + 18, "composite 8 own + 18 part");
+        boolean bordered = true;
+        for (int i = 0; i < 8; i++) {
+            bordered &= h1.get(i).endsWith(
+                    ":example1.structures:hut_roof");
+        }
+        for (int i = 8; i < 26; i++) {
+            bordered &= h1.get(i).endsWith(
+                    ":example1.structures:hut_wall");
+        }
+        check(bordered, "composite own-then-parts");
+        String[] own0 = h1.get(0).split(":")[0].split(",");
+        String[] part0 = h1.get(8).split(":")[0].split(",");
+        check(Integer.parseInt(own0[0]) - Integer.parseInt(part0[0]) == 10
+                && Integer.parseInt(own0[1])
+                        - Integer.parseInt(part0[1]) == 0
+                && Integer.parseInt(own0[2])
+                        - Integer.parseInt(part0[2]) == -4,
+                "composite shared offset");
+        Map<MatouId, Object> hstates2 = new HashMap<MatouId, Object>();
+        hstates2.put(StructurePlaceJob.HUT, Long.valueOf(2L));
+        List<String> h2 = hut.decide(new Snapshot(7L, hstates2));
+        check(h2.size() == 2 * 26, "composite count 2 is 52");
+        String[] own1 = h2.get(26).split(":")[0].split(",");
+        String[] part1 = h2.get(34).split(":")[0].split(",");
+        check(Integer.parseInt(own1[0]) - Integer.parseInt(part1[0]) == 10
+                && Integer.parseInt(own1[2])
+                        - Integer.parseInt(part1[2]) == -4,
+                "composite second offset shared");
+
+        // --- wiring refusals: cycles, external parts, alias strictness ---
         expectRefused(new Runnable() {
             public void run() {
                 StructurePlaceJob.fromFile(
-                        "content/structure.matou", "hut");
+                        "content/structure_badparts.matou", "loop");
             }
-        }, "structure composite refused at wiring");
+        }, "structure cycle");
+        expectRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.fromFile(
+                        "content/structure_badparts.matou", "ext");
+            }
+        }, "structure external part");
+        Map<String, String> stoneAlias = new HashMap<String, String>();
+        stoneAlias.put("example1.structures:hut_wall", "minecraft:stone");
+        final StructurePlaceJob aliased = StructurePlaceJob.fromFile(
+                "content/structure.matou", "well", stoneAlias);
+        check(aliased.palette().equals(Arrays.asList("minecraft:stone")),
+                "alias palette");
+        Map<MatouId, Object> astates = new HashMap<MatouId, Object>();
+        astates.put(StructurePlaceJob.WELL, Long.valueOf(1L));
+        List<String> acells = aliased.decide(new Snapshot(7L, astates));
+        check(acells.size() == 18, "alias decides 18");
+        boolean aliasStone = true;
+        for (String cell : acells) {
+            aliasStone &= cell.endsWith(":minecraft:stone");
+        }
+        check(aliasStone, "alias all stone");
+        expectRefused(new Runnable() {
+            public void run() {
+                Map<String, String> partial = new HashMap<String, String>();
+                partial.put("example1.structures:hut_roof",
+                        "minecraft:stone");
+                StructurePlaceJob.fromFile(
+                        "content/structure.matou", "hut", partial);
+            }
+        }, "alias unmapped palette");
+        expectRefused(new Runnable() {
+            public void run() {
+                Map<String, String> bogus = new HashMap<String, String>();
+                bogus.put("example1.structures:hut_wall",
+                        "minecraft:stone");
+                bogus.put("bogus:thing", "minecraft:dirt");
+                StructurePlaceJob.fromFile(
+                        "content/structure.matou", "well", bogus);
+            }
+        }, "alias unknown key");
+        expectRefused(new Runnable() {
+            public void run() {
+                Map<String, String> bad = new HashMap<String, String>();
+                bad.put("example1.structures:hut_wall", "stone");
+                StructurePlaceJob.fromFile(
+                        "content/structure.matou", "well", bad);
+            }
+        }, "alias bad value");
+        expectNullRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.fromFile(
+                        "content/structure.matou", "well", null);
+            }
+        }, "alias null map");
         expectRefused(new Runnable() {
             public void run() {
                 StructurePlaceJob.fromFile(

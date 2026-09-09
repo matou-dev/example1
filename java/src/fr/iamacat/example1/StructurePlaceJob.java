@@ -7,55 +7,71 @@ import fr.iamacat.spi.MatouRng;
 import fr.iamacat.spi.Snapshot;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * V3 structure job: decides the cells of one leaf structure volume from its
- * {@code anchor}/{@code size}/{@code palette} (spec
- * {@code SYNTAX-V3.md}). Pure (no IO, no Minecraft, no clock): same snapshot
- * in, equal decision out. Java 8, zero deps beyond matou-spi.
+ * V3 structure job: decides the cells of one structure volume from its
+ * {@code anchor}/{@code size}/{@code palette} plus, recursively, its
+ * {@code parts} (spec {@code SYNTAX-V3.md}). Pure (no IO, no Minecraft, no
+ * clock): same snapshot in, equal decision out. Java 8, zero deps beyond
+ * matou-spi.
  *
  * <p>Split parser/job (same as {@code feature.count} refused by
  * {@link OwnedVeinJob}): the parser accepts any integers and any uniform
- * list, the job refuses non-positive extents ({@code E_EXAMPLE_SIZE}), an
- * empty palette ({@code E_EXAMPLE_PALETTE}) and non-leaf parts
- * ({@code E_EXAMPLE_PARTS}, recursive placement is not decided yet) loudly,
- * never defaulted.
+ * list, the job refuses non-positive extents ({@code E_EXAMPLE_SIZE}) and
+ * an empty palette ({@code E_EXAMPLE_PALETTE}) loudly, never defaulted.
+ *
+ * <p>Composition: each occurrence places the own volume first, then parts
+ * depth-first in listed order (landing order decides overlaps). Every
+ * volume of the occurrence shares one plane offset, so the composed shape
+ * survives the per-tick addressing: part anchors stay absolute, the offset
+ * shifts the whole tree. A part's own {@code count} applies to standalone
+ * wiring only; as a part it is placed once per parent occurrence. Cycles
+ * are refused at wiring ({@code E_EXAMPLE_PARTS:cycle}); parts outside
+ * the wired file are refused ({@code E_EXAMPLE_CONTENT:external part},
+ * cross-file composition is not wired yet) — never skipped silently.
+ *
+ * <p>Palette aliases ({@link #fromFile(String, String, Map)}): operator
+ * bindings of content block refs to landable blocks (e.g. vanilla
+ * names for the live run — content decides <i>where</i>, the operator
+ * decides <i>what</i>, as with the wire block of plane cells). An empty
+ * map is the identity; a non-empty map is strict both ways (unmapped
+ * palette entry or unknown alias key both fail loudly at wiring).
  *
  * <p>Cells are {@code "x,y,z:ns:block"} strings. Per tick the job places
  * {@code count} occurrences (count read from the snapshot, as with
- * {@link OwnedVeinJob}); each occurrence offsets the volume in a 16x16 plane
+ * {@link OwnedVeinJob}); each occurrence offsets the tree in a 16x16 plane
  * and picks each cell block from the palette through the addressed RNG, so
  * the decision is deterministic per tick.
  */
 public final class StructurePlaceJob implements MatouJob<List<String>> {
     public static final MatouId WELL =
             MatouId.parse("example1.structures:well");
+    public static final MatouId HUT =
+            MatouId.parse("example1.structures:hut");
     static final int CELLS = 16;
 
     private final MatouId id;
     private final int[] anchor;
     private final int[] size;
     private final List<String> palette;
+    private final List<StructurePlaceJob> parts;
     private final int contentCount;
 
     public StructurePlaceJob(MatouId id, int[] anchor, int[] size,
-            List<String> palette, List<String> parts, int count) {
+            List<String> palette, List<StructurePlaceJob> parts,
+            int count) {
         if (id == null) {
             throw new NullPointerException("E_EXAMPLE_STRUCT:null id");
         }
         this.anchor = vecOf(anchor, "anchor", id);
         this.size = sizeOf(size, id);
         this.palette = paletteOf(palette, id);
-        if (parts == null) {
-            throw new NullPointerException(
-                    "E_EXAMPLE_STRUCT:null parts <" + id + ">");
-        }
-        if (!parts.isEmpty()) {
-            throw new IllegalArgumentException("E_EXAMPLE_PARTS:non-leaf <"
-                    + id + "> (recursive placement not yet decided)");
-        }
+        this.parts = partsOf(parts, id);
         this.contentCount = OwnedVeinJob.countOf(Integer.valueOf(count));
         this.id = id;
     }
@@ -76,9 +92,22 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
         return palette;
     }
 
+    public List<StructurePlaceJob> parts() {
+        return parts;
+    }
+
     /** Count parsed from the content file (tick counts come from snapshots). */
     public int contentCount() {
         return contentCount;
+    }
+
+    /** Own volume plus every part volume, recursively (capacity hint). */
+    int treeVolume() {
+        int volume = size[0] * size[1] * size[2];
+        for (StructurePlaceJob part : parts) {
+            volume += part.treeVolume();
+        }
+        return volume;
     }
 
     public List<String> decide(Snapshot snap) {
@@ -88,24 +117,30 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
         int count = OwnedVeinJob.countOf(snap.get(id), id);
         MatouRng rng = MatouRng.forAddress(id.namespace, id.name,
                 Long.toString(snap.tick()));
-        int volume = size[0] * size[1] * size[2];
-        List<String> out = new ArrayList<String>(count * volume);
+        List<String> out = new ArrayList<String>(count * treeVolume());
         for (int o = 0; o < count; o++) {
-            int ox = rng.nextInt(CELLS);
-            int oz = rng.nextInt(CELLS);
-            for (int dx = 0; dx < size[0]; dx++) {
-                for (int dy = 0; dy < size[1]; dy++) {
-                    for (int dz = 0; dz < size[2]; dz++) {
-                        String block = palette.get(
-                                rng.nextInt(palette.size()));
-                        out.add((anchor[0] + ox + dx) + ","
-                                + (anchor[1] + dy) + ","
-                                + (anchor[2] + oz + dz) + ":" + block);
-                    }
+            placeTree(this, rng.nextInt(CELLS), rng.nextInt(CELLS),
+                    rng, out);
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    private static void placeTree(StructurePlaceJob job, int ox, int oz,
+            MatouRng rng, List<String> out) {
+        for (int dx = 0; dx < job.size[0]; dx++) {
+            for (int dy = 0; dy < job.size[1]; dy++) {
+                for (int dz = 0; dz < job.size[2]; dz++) {
+                    String block = job.palette.get(
+                            rng.nextInt(job.palette.size()));
+                    out.add((job.anchor[0] + ox + dx) + ","
+                            + (job.anchor[1] + dy) + ","
+                            + (job.anchor[2] + oz + dz) + ":" + block);
                 }
             }
         }
-        return Collections.unmodifiableList(out);
+        for (StructurePlaceJob part : job.parts) {
+            placeTree(part, ox, oz, rng, out);
+        }
     }
 
     /**
@@ -139,13 +174,26 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
     }
 
     /**
-     * Wires one leaf structure from a content file through the SPI reference
-     * parser, once (never on the tick path). Loud on unreadable / unparsable
-     * / missing structure / malformed fields — never defaulted. Non-leaf
-     * structures are refused ({@code E_EXAMPLE_PARTS}) at wiring time.
+     * Wires one structure plus its part tree from a content file through
+     * the SPI reference parser, once (never on the tick path). Identity
+     * palette (content refs land as-is). Loud on unreadable / unparsable
+     * / missing structure / malformed fields / cycles / external parts —
+     * never defaulted.
+     */
+    public static StructurePlaceJob fromFile(String path, String name) {
+        return fromFile(path, name,
+                Collections.<String, String>emptyMap());
+    }
+
+    /**
+     * Wires one structure plus its part tree with palette aliases
+     * ({@code content-ref -> landable block}). An empty map is the
+     * identity; a non-empty map must cover every palette entry of the
+     * tree and hold no foreign key, else wiring fails loudly.
      */
     @SuppressWarnings("unchecked")
-    public static StructurePlaceJob fromFile(String path, String name) {
+    public static StructurePlaceJob fromFile(String path, String name,
+            Map<String, String> aliases) {
         if (path == null) {
             throw new NullPointerException(
                     "E_EXAMPLE_CONTENT:null structure path");
@@ -153,6 +201,10 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
         if (name == null) {
             throw new NullPointerException(
                     "E_EXAMPLE_CONTENT:null structure name");
+        }
+        if (aliases == null) {
+            throw new NullPointerException(
+                    "E_EXAMPLE_CONTENT:null aliases");
         }
         Map<String, Object> tree;
         try {
@@ -162,37 +214,127 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
                     "E_EXAMPLE_CONTENT:unreadable <" + path + "> ("
                             + e.getMessage() + ")");
         }
-        Object instances = tree.get("instances");
         String namespace = String.valueOf(tree.get("namespace"));
+        Map<String, Map<String, Object>> byName =
+                new HashMap<String, Map<String, Object>>();
+        Object instances = tree.get("instances");
         if (instances instanceof List) {
             for (Object o : (List<Object>) instances) {
                 if (!(o instanceof Map)) {
                     continue;
                 }
                 Map<String, Object> inst = (Map<String, Object>) o;
-                if (!"Structure".equals(inst.get("decl"))
-                        || !name.equals(inst.get("name"))) {
+                if (!"Structure".equals(inst.get("decl"))) {
                     continue;
                 }
                 Object fields = inst.get("fields");
-                if (!(fields instanceof Map)) {
-                    throw new IllegalArgumentException(
-                            "E_EXAMPLE_CONTENT:bad fields <" + name
-                                    + "> in <" + path + ">");
+                if (fields instanceof Map) {
+                    byName.put(String.valueOf(inst.get("name")),
+                            (Map<String, Object>) fields);
                 }
-                Map<String, Object> f = (Map<String, Object>) fields;
-                return new StructurePlaceJob(
-                        MatouId.of(namespace, name),
-                        intsOf(f.get("anchor"), "anchor", name, path),
-                        intsOf(f.get("size"), "size", name, path),
-                        refsOf(f.get("palette"), "palette", name, path),
-                        refsOf(f.get("parts"), "parts", name, path),
-                        numOf(f.get("count"), "count", name, path));
             }
         }
-        throw new IllegalArgumentException(
-                "E_EXAMPLE_CONTENT:missing structure <" + name + "> in <"
-                        + path + ">");
+        if (!byName.containsKey(name)) {
+            throw new IllegalArgumentException(
+                    "E_EXAMPLE_CONTENT:missing structure <" + name
+                            + "> in <" + path + ">");
+        }
+        Set<String> used = new HashSet<String>();
+        StructurePlaceJob root = resolve(path, namespace, byName, name,
+                new ArrayList<String>(), aliases, used);
+        for (String key : aliases.keySet()) {
+            if (!used.contains(key)) {
+                throw new IllegalArgumentException(
+                        "E_EXAMPLE_CONTENT:unknown alias <" + key
+                                + "> in <" + path + ">");
+            }
+        }
+        return root;
+    }
+
+    private static StructurePlaceJob resolve(String path, String namespace,
+            Map<String, Map<String, Object>> byName, String name,
+            List<String> chain, Map<String, String> aliases,
+            Set<String> used) {
+        if (chain.contains(name)) {
+            List<String> cycle = new ArrayList<String>(chain);
+            cycle.add(name);
+            throw new IllegalArgumentException(
+                    "E_EXAMPLE_PARTS:cycle <" + join(cycle, " -> ")
+                            + "> in <" + path + ">");
+        }
+        Map<String, Object> f = byName.get(name);
+        if (f == null) {
+            throw new IllegalArgumentException(
+                    "E_EXAMPLE_CONTENT:missing structure <" + name
+                            + "> in <" + path + ">");
+        }
+        List<String> rawParts = refsOf(f.get("parts"), "parts", name, path);
+        List<String> visiting = new ArrayList<String>(chain);
+        visiting.add(name);
+        List<StructurePlaceJob> parts =
+                new ArrayList<StructurePlaceJob>(rawParts.size());
+        for (String ref : rawParts) {
+            int cut = ref.indexOf(':');
+            if (cut < 0) {
+                throw new IllegalArgumentException(
+                        "E_EXAMPLE_CONTENT:bad parts <" + name + "> in <"
+                                + path + ">");
+            }
+            String refNs = ref.substring(0, cut);
+            String refName = ref.substring(cut + 1);
+            if (!refNs.equals(namespace)) {
+                throw new IllegalArgumentException(
+                        "E_EXAMPLE_CONTENT:external part <" + ref
+                                + "> in <" + path
+                                + "> (cross-file composition not wired)");
+            }
+            parts.add(resolve(path, namespace, byName, refName, visiting,
+                    aliases, used));
+        }
+        return new StructurePlaceJob(MatouId.of(namespace, name),
+                intsOf(f.get("anchor"), "anchor", name, path),
+                intsOf(f.get("size"), "size", name, path),
+                substitute(refsOf(f.get("palette"), "palette", name, path),
+                        aliases, used, name, path),
+                Collections.unmodifiableList(parts),
+                numOf(f.get("count"), "count", name, path));
+    }
+
+    private static List<String> substitute(List<String> palette,
+            Map<String, String> aliases, Set<String> used, String name,
+            String path) {
+        if (aliases.isEmpty()) {
+            return palette;
+        }
+        List<String> out = new ArrayList<String>(palette.size());
+        for (String entry : palette) {
+            String to = aliases.get(entry);
+            if (to == null) {
+                throw new IllegalArgumentException(
+                        "E_EXAMPLE_CONTENT:unmapped palette <" + entry
+                                + "> in <" + name + "> (<" + path + ">)");
+            }
+            if (to.isEmpty() || to.indexOf(':') < 0) {
+                throw new IllegalArgumentException(
+                        "E_EXAMPLE_CONTENT:bad alias <" + entry + " -> "
+                                + to + "> in <" + path + ">");
+            }
+            used.add(entry);
+            out.add(to);
+        }
+        return out;
+    }
+
+    private static String join(List<String> items, String sep) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < items.size(); i++) {
+            if (i > 0) {
+                sb.append(sep);
+            }
+            sb.append(items.get(i));
+        }
+        return sb.toString();
     }
 
     private static String posOf(String cell) {
@@ -245,6 +387,23 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
             if (block == null || block.isEmpty()) {
                 throw new IllegalArgumentException(
                         "E_EXAMPLE_PALETTE:bad entry <" + id + ">");
+            }
+        }
+        return Collections.unmodifiableList(copy);
+    }
+
+    private static List<StructurePlaceJob> partsOf(
+            List<StructurePlaceJob> parts, MatouId id) {
+        if (parts == null) {
+            throw new NullPointerException(
+                    "E_EXAMPLE_STRUCT:null parts <" + id + ">");
+        }
+        List<StructurePlaceJob> copy =
+                new ArrayList<StructurePlaceJob>(parts);
+        for (StructurePlaceJob part : copy) {
+            if (part == null) {
+                throw new NullPointerException(
+                        "E_EXAMPLE_STRUCT:null part <" + id + ">");
             }
         }
         return Collections.unmodifiableList(copy);

@@ -7,7 +7,19 @@ Full notes per tag: https://github.com/matou-dev/example1/releases.
 
 ## [Unreleased]
 
-- Structure proof over SYNTAX-V3: `content/structure.matou` (1 block + 1
+- Recursive `parts`: `StructurePlaceJob` places composites (own volume
+  first, then parts depth-first in listed order, one shared plane offset
+  per occurrence so the composed shape survives addressing; a part's own
+  `count` is standalone-only). Cycles fail at wiring
+  (`E_EXAMPLE_PARTS:cycle`), cross-file parts fail
+  (`E_EXAMPLE_CONTENT:external part`) — never skipped. The pack now wires
+  the composite `hut` (own `hut_roof` palette + `well` part).
+- Palette aliases for the live run: `fromFile` 3-arg overload and
+  `block.<ref>` pack args (`content-ref -> landable block`, empty =
+  identity, otherwise strict both ways: unmapped entry, unknown key and
+  malformed value all fail at wiring). Content decides *where*, the
+  operator decides *what*.
+- Structure proof over SYNTAX-V3: `content/structure.matou` (2 blocks + 1
   leaf structure + 1 composite, namespace `example1.structures`) wired once
   through the SPI reference parser to the pure `StructurePlaceJob` (cells
   `x,y,z:ns:block` from anchor/size/palette, count per tick from the

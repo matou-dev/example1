@@ -2,7 +2,19 @@ name: check
 on: [push, pull_request]
 jobs:
   gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - run: sh tools/check.sh
+      # Sibling layout (cf. hub README): tools/check.sh compiles against ../spi.
+      # Actions pinned by SHA 2026-09-09 (tags v4); Dependabot keeps them fresh.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: example1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: matou-dev/spi
+          path: spi
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: sh example1/tools/check.sh

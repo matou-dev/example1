@@ -7,6 +7,9 @@ Full notes per tag: https://github.com/matou-dev/example1/releases.
 
 ## [Unreleased]
 
+- CI: runner pinned (`ubuntu-24.04`), JDK 21 via `setup-java` (temurin),
+  actions pinned by SHA with Dependabot, missing `spi` sibling checkout
+  added (the gate compiles against it).
 - Docs: README rewritten in English (R3 hygiene).
 
 ## [1.0.0] - 2026-09-09

@@ -25,7 +25,7 @@ public final class AdditiveScatterJob implements MatouJob<List<String>> {
         if (snap == null) {
             throw new NullPointerException("E_EXAMPLE_SNAPSHOT:null");
         }
-        int count = OwnedVeinJob.countOf(countRaw(snap));
+        int count = OwnedVeinJob.countOf(countRaw(snap), SCATTER);
         MatouRng rng = MatouRng.forAddress("example1.overworld",
                 "scatter_additive", Long.toString(snap.tick()));
         List<String> out = new ArrayList<String>(count);

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Gate M2 content: every content/*.matou must parse identically with the
 sibling SPI parsers (py reference + java port), and the proof shape holds
-(owned: 1 block + 1 item + 1 mob + 1 feature; additive: 1 late feature).
+(owned: 1 block + 1 item + 1 mob + 1 feature; additive: 1 late feature;
+structure: 1 block + 1 leaf structure + 1 composite).
 Structural compare, key order free. No Minecraft imports.
 """
 import glob
@@ -19,6 +20,7 @@ JAVA_MAIN = "fr.iamacat.spi.MatouParse"
 
 WANT_OWNED = [("Block", 1), ("Item", 1), ("Mob", 1), ("Feature", 1)]
 WANT_ADDITIVE = [("Feature", 1)]
+WANT_STRUCTURE = [("Block", 1), ("Structure", 2)]
 
 
 def run(cmd, path):
@@ -52,7 +54,8 @@ def main():
             fails += 1
             continue
         decls = [i["decl"] for i in py_tree["instances"]]
-        want = WANT_ADDITIVE if name == "additive.matou" else WANT_OWNED
+        want = {"additive.matou": WANT_ADDITIVE,
+                "structure.matou": WANT_STRUCTURE}.get(name, WANT_OWNED)
         bad_shape = sorted(decls) != sorted(
             [d for d, n in want for _ in range(n)])
         if bad_shape:

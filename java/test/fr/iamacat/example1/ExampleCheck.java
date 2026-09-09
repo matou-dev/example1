@@ -227,6 +227,188 @@ public final class ExampleCheck {
         viaCfg.configure(cfg);
         check(viaCfg.states(7L).equals(packStates), "pack configure wires");
 
+        // --- structure job: pure leaf placement, named semantic refusals ---
+        final StructurePlaceJob well = StructurePlaceJob.fromFile(
+                "content/structure.matou", "well");
+        check(well.id().equals(StructurePlaceJob.WELL), "structure id");
+        check(well.id().equals(
+                MatouId.of("example1.structures", "well")),
+                "structure ns");
+        check(well.contentCount() == 1, "structure content count 1");
+        check(Arrays.equals(well.anchor(), new int[]{0, 64, 0}),
+                "structure anchor");
+        check(Arrays.equals(well.size(), new int[]{3, 2, 3}),
+                "structure size");
+        check(well.palette().equals(
+                Arrays.asList("example1.structures:hut_wall")),
+                "structure palette");
+        try {
+            well.palette().add("example1.structures:nope");
+            check(false, "structure palette immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : structure palette immutable");
+        }
+        Map<MatouId, Object> sstates = new HashMap<MatouId, Object>();
+        sstates.put(StructurePlaceJob.WELL, Long.valueOf(2L));
+        List<String> s1 = well.decide(new Snapshot(7L, sstates));
+        List<String> s2 = well.decide(new Snapshot(7L, sstates));
+        check(s1.equals(s2), "structure pure");
+        check(s1.size() == 2 * 3 * 2 * 3, "structure count*volume 36");
+        boolean sshaped = true;
+        boolean sband = true;
+        for (String cell : s1) {
+            sshaped &= cell.matches(
+                    "[0-9]+,[0-9]+,[0-9]+:example1\\.structures:hut_wall");
+            int y = Integer.parseInt(
+                    cell.split(":")[0].split(",")[1]);
+            sband &= (y == 64 || y == 65);
+        }
+        check(sshaped, "structure cells shaped");
+        check(sband, "structure y band");
+        Map<MatouId, Object> sstates8 = new HashMap<MatouId, Object>();
+        sstates8.put(StructurePlaceJob.WELL, Long.valueOf(2L));
+        check(!well.decide(new Snapshot(8L, sstates8)).equals(s1),
+                "structure tick addressed");
+        try {
+            s1.add("0,64,0:example1.structures:hut_wall");
+            check(false, "structure decision immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : structure decision immutable");
+        }
+        expectNullRefused(new Runnable() {
+            public void run() {
+                well.decide(null);
+            }
+        }, "structure null snapshot");
+        expectRefused(new Runnable() {
+            public void run() {
+                well.decide(new Snapshot(7L,
+                        new HashMap<MatouId, Object>()));
+            }
+        }, "structure missing count");
+        expectRefused(new Runnable() {
+            public void run() {
+                Map<MatouId, Object> states =
+                        new HashMap<MatouId, Object>();
+                states.put(StructurePlaceJob.WELL, Long.valueOf(0L));
+                well.decide(new Snapshot(7L, states));
+            }
+        }, "structure count 0");
+        final int[] anchor = new int[]{0, 64, 0};
+        final List<String> pal =
+                Arrays.asList("example1.structures:hut_wall");
+        final List<String> noParts = Collections.emptyList();
+        final List<String> someParts =
+                Arrays.asList("example1.structures:well");
+        expectRefused(new Runnable() {
+            public void run() {
+                new StructurePlaceJob(StructurePlaceJob.WELL, anchor,
+                        new int[]{0, 2, 3}, pal, noParts, 1);
+            }
+        }, "structure size 0");
+        expectRefused(new Runnable() {
+            public void run() {
+                new StructurePlaceJob(StructurePlaceJob.WELL, anchor,
+                        new int[]{3, -1, 3}, pal, noParts, 1);
+            }
+        }, "structure size negative");
+        expectRefused(new Runnable() {
+            public void run() {
+                new StructurePlaceJob(StructurePlaceJob.WELL, anchor,
+                        new int[]{3, 2, 3}, Collections.<String>emptyList(),
+                        noParts, 1);
+            }
+        }, "structure palette empty");
+        expectRefused(new Runnable() {
+            public void run() {
+                new StructurePlaceJob(StructurePlaceJob.WELL, anchor,
+                        new int[]{3, 2, 3}, pal, someParts, 1);
+            }
+        }, "structure non-leaf parts");
+        expectRefused(new Runnable() {
+            public void run() {
+                new StructurePlaceJob(StructurePlaceJob.WELL, anchor,
+                        new int[]{3, 2, 3}, pal, noParts, 0);
+            }
+        }, "structure count 0");
+        expectNullRefused(new Runnable() {
+            public void run() {
+                new StructurePlaceJob(StructurePlaceJob.WELL, null,
+                        new int[]{3, 2, 3}, pal, noParts, 1);
+            }
+        }, "structure null anchor");
+        expectNullRefused(new Runnable() {
+            public void run() {
+                new StructurePlaceJob(StructurePlaceJob.WELL, anchor,
+                        new int[]{3, 2, 3}, null, noParts, 1);
+            }
+        }, "structure null palette");
+        expectRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.fromFile(
+                        "content/structure.matou", "hut");
+            }
+        }, "structure composite refused at wiring");
+        expectRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.fromFile(
+                        "content/structure.matou", "nope");
+            }
+        }, "structure missing name");
+        expectRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.fromFile(
+                        "content/nope.matou", "well");
+            }
+        }, "structure bad path");
+        expectNullRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.fromFile(null, "well");
+            }
+        }, "structure null path");
+
+        // --- structure merge: owned never replaced, position-keyed ---
+        List<String> smerged = StructurePlaceJob.merge(
+                Arrays.asList("0,64,0:example1.structures:hut_wall",
+                        "1,64,0:example1.structures:hut_wall"),
+                Arrays.asList("1,64,0:example1.structures:other",
+                        "2,64,0:example1.structures:other"));
+        check(smerged.equals(Arrays.asList(
+                "0,64,0:example1.structures:hut_wall",
+                "1,64,0:example1.structures:hut_wall",
+                "2,64,0:example1.structures:other")),
+                "structure merge keeps owned block");
+        List<String> sfull = StructurePlaceJob.merge(s1,
+                well.decide(new Snapshot(8L, sstates8)));
+        check(sfull.size() >= s1.size()
+                && sfull.subList(0, s1.size()).equals(s1),
+                "structure merge keeps owned");
+        try {
+            sfull.add("0,64,0:example1.structures:hut_wall");
+            check(false, "structure merged immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : structure merged immutable");
+        }
+        expectNullRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.merge(null,
+                        Collections.<String>emptyList());
+            }
+        }, "structure merge null owned");
+        expectNullRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.merge(
+                        Collections.<String>emptyList(), null);
+            }
+        }, "structure merge null additive");
+        expectRefused(new Runnable() {
+            public void run() {
+                StructurePlaceJob.merge(
+                        Arrays.asList("badcell"),
+                        Collections.<String>emptyList());
+            }
+        }, "structure merge bad cell");
+
         System.out.println("ok example1 : all");
     }
 }

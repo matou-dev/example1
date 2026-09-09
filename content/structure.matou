@@ -1,0 +1,32 @@
+syntax 3
+namespace example1.structures
+
+genre Block : Data
+field hardness : f32
+
+genre Structure : Data
+field anchor : vec3
+field size : vec3
+field palette : list<block_ref>
+field parts : list<structure_ref>
+field count : u32
+
+block hut_wall
+  hardness = 4.0
+
+# Leaf proof target: StructurePlaceJob places this volume (3*2*3 = 18 cells).
+structure well
+  anchor = 0, 64, 0
+  size = 3, 2, 3
+  palette = [example1.structures:hut_wall]
+  parts = []
+  count = 1
+
+# Composite shape lock: the parser accepts ordered forward parts, the deciding
+# job refuses non-leaf loudly (E_EXAMPLE_PARTS) until recursive placement lands.
+structure hut
+  anchor = 10, 64, -4
+  size = 2, 2, 2
+  palette = [example1.structures:hut_wall]
+  parts = [example1.structures:well]
+  count = 2

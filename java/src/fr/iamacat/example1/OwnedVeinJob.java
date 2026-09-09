@@ -33,9 +33,13 @@ public final class OwnedVeinJob implements MatouJob<List<String>> {
     }
 
     static int countOf(Object raw) {
+        return countOf(raw, VEIN);
+    }
+
+    static int countOf(Object raw, MatouId id) {
         if (raw == null) {
             throw new IllegalArgumentException(
-                    "E_EXAMPLE_COUNT:missing <example1.content:my_vein>");
+                    "E_EXAMPLE_COUNT:missing <" + id + ">");
         }
         if (!(raw instanceof Number)) {
             throw new IllegalArgumentException(

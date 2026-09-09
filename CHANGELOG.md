@@ -7,6 +7,17 @@ Full notes per tag: https://github.com/matou-dev/example1/releases.
 
 ## [Unreleased]
 
+- Structure proof over SYNTAX-V3: `content/structure.matou` (1 block + 1
+  leaf structure + 1 composite, namespace `example1.structures`) wired once
+  through the SPI reference parser to the pure `StructurePlaceJob` (cells
+  `x,y,z:ns:block` from anchor/size/palette, count per tick from the
+  snapshot). Semantic refusals live in the job, as with `feature.count`:
+  `E_EXAMPLE_SIZE` (non-positive extents), `E_EXAMPLE_PALETTE` (empty),
+  `E_EXAMPLE_PARTS` (non-leaf refused at wiring until recursive placement
+  lands). Position-keyed owned/additive `merge` (owned block never
+  replaced). `ExamplePack` untouched on purpose (bridge calls its 2-arg
+  `fromFiles`); pack wiring for structures is follow-up.
+
 - CI: runner pinned (`ubuntu-24.04`), JDK 21 via `setup-java` (temurin),
   actions pinned by SHA with Dependabot, missing `spi` sibling checkout
   added (the gate compiles against it).

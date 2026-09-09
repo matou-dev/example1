@@ -6,9 +6,11 @@ import fr.iamacat.spi.MatouJob;
 import fr.iamacat.spi.MatouParse;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * B2 content pack: exposes the M2 jobs plus their counts as
@@ -33,10 +35,12 @@ import java.util.Map;
  * <i>where</i>, the operator decides <i>what</i>, as with the wire block
  * of plane cells. The decide path is fully wired (pure, shape-agnostic
  * merge); landing {@code x,y,z:block} cells needs a 3D-capable sink
- * (bridge {@code WorldCellSink}).
+ * (bridge {@code WorldCellSink}). Jobs live in one registry:
+ * {@link #jobs()} in owned-first order, {@link #job} by id — adding a job
+ * extends the registry, never the factory overloads.
  */
 public final class ExamplePack implements ConfigurablePack {
-    public static final String NAMESPACE = "example1";
+    public static final String NAMESPACE = ExampleIds.NAMESPACE;
     static final String OWNED_KEY = "ownedFile";
     static final String SCATTER_KEY = "scatterFile";
     static final String STRUCTURE_KEY = "structureFile";
@@ -46,31 +50,68 @@ public final class ExamplePack implements ConfigurablePack {
 
     private int ownedCount;
     private int scatterCount;
-    private StructurePlaceJob structure;
+    private List<StructurePlaceJob> structures;
     private boolean configured;
 
     /** No-arg for the reflective loader; {@link #configure} must follow. */
     public ExamplePack() {
+        this.structures = Collections.<StructurePlaceJob>emptyList();
         this.configured = false;
     }
 
     public ExamplePack(int ownedCount, int scatterCount) {
-        this.ownedCount =
-                OwnedVeinJob.countOf(Integer.valueOf(ownedCount));
-        this.scatterCount =
-                OwnedVeinJob.countOf(Integer.valueOf(scatterCount));
-        this.structure = null;
-        this.configured = true;
+        this(ownedCount, scatterCount,
+                Collections.<StructurePlaceJob>emptyList());
     }
 
     /** Wired pack: {@code structure} is shared (immutable, pure). */
     public ExamplePack(int ownedCount, int scatterCount,
             StructurePlaceJob structure) {
-        this(ownedCount, scatterCount);
+        this(ownedCount, scatterCount, singleton(structure));
+    }
+
+    private static List<StructurePlaceJob> singleton(
+            StructurePlaceJob structure) {
         if (structure == null) {
             throw new NullPointerException("E_EXAMPLE_STRUCT:null job");
         }
-        this.structure = structure;
+        return Collections.singletonList(structure);
+    }
+
+    /**
+     * Wired pack over several structures (each wired separately, e.g. via
+     * {@link StructurePlaceJob#fromFiles}, so per-tree alias coverage stays
+     * strict). Duplicate structure ids are refused.
+     */
+    public ExamplePack(int ownedCount, int scatterCount,
+            List<StructurePlaceJob> structures) {
+        this.ownedCount =
+                OwnedVeinJob.countOf(Integer.valueOf(ownedCount));
+        this.scatterCount =
+                OwnedVeinJob.countOf(Integer.valueOf(scatterCount));
+        this.structures = checked(structures);
+        this.configured = true;
+    }
+
+    private static List<StructurePlaceJob> checked(
+            List<StructurePlaceJob> structures) {
+        if (structures == null) {
+            throw new NullPointerException("E_EXAMPLE_STRUCT:null jobs");
+        }
+        List<StructurePlaceJob> copy =
+                new ArrayList<StructurePlaceJob>(structures.size());
+        Set<MatouId> seen = new HashSet<MatouId>();
+        for (StructurePlaceJob job : structures) {
+            if (job == null) {
+                throw new NullPointerException("E_EXAMPLE_STRUCT:null job");
+            }
+            if (!seen.add(job.id())) {
+                throw new IllegalArgumentException(
+                        "E_EXAMPLE_STRUCT:dup <" + job.id() + ">");
+            }
+            copy.add(job);
+        }
+        return Collections.unmodifiableList(copy);
     }
 
     public void configure(Map<String, String> args) {
@@ -111,7 +152,7 @@ public final class ExamplePack implements ConfigurablePack {
         }
         this.ownedCount = ready.ownedCount;
         this.scatterCount = ready.scatterCount;
-        this.structure = ready.structure;
+        this.structures = ready.structures;
         this.configured = true;
     }
 
@@ -194,8 +235,25 @@ public final class ExamplePack implements ConfigurablePack {
         }
         ExamplePack legacy = fromFiles(ownedPath, scatterPath);
         return new ExamplePack(legacy.ownedCount, legacy.scatterCount,
-                StructurePlaceJob.fromFiles(structurePaths, structureRoot,
-                        aliases));
+                Collections.singletonList(StructurePlaceJob.fromFiles(
+                        structurePaths, structureRoot, aliases)));
+    }
+
+    /**
+     * Parses owned/scatter once and registers already-wired structures
+     * (each wired separately, e.g. via {@link StructurePlaceJob#fromFiles},
+     * so per-tree alias coverage stays strict). This is the growth path:
+     * a further job joins the registry here, no new overload needed.
+     */
+    public static ExamplePack fromFiles(String ownedPath,
+            String scatterPath, List<StructurePlaceJob> structures) {
+        if (structures == null) {
+            throw new NullPointerException(
+                    "E_EXAMPLE_CONTENT:null structures");
+        }
+        ExamplePack legacy = fromFiles(ownedPath, scatterPath);
+        return new ExamplePack(legacy.ownedCount, legacy.scatterCount,
+                structures);
     }
 
     /** Comma-separated path list; blank entries fail loudly, never skipped. */
@@ -285,9 +343,8 @@ public final class ExamplePack implements ConfigurablePack {
         Map<MatouId, Object> states = new LinkedHashMap<MatouId, Object>();
         states.put(OwnedVeinJob.VEIN, Long.valueOf(ownedCount));
         states.put(AdditiveScatterJob.SCATTER, Long.valueOf(scatterCount));
-        if (structure != null) {
-            states.put(structure.id(),
-                    Long.valueOf(structure.contentCount()));
+        for (StructurePlaceJob job : structures) {
+            states.put(job.id(), Long.valueOf(job.contentCount()));
         }
         return Collections.unmodifiableMap(states);
     }
@@ -297,9 +354,32 @@ public final class ExamplePack implements ConfigurablePack {
                 new ArrayList<MatouJob<List<String>>>();
         jobs.add(new OwnedVeinJob());
         jobs.add(new AdditiveScatterJob());
-        if (structure != null) {
-            jobs.add(structure);
-        }
+        jobs.addAll(structures);
         return Collections.unmodifiableList(jobs);
+    }
+
+    /**
+     * Registry lookup by id: owned and additive jobs resolve to fresh
+     * equivalents (they are stateless), structures to the wired instance.
+     * Unknown ids are refused loudly — callers never index
+     * {@link #jobs()} positionally.
+     */
+    public MatouJob<List<String>> job(MatouId id) {
+        if (id == null) {
+            throw new NullPointerException("E_EXAMPLE_JOB:null id");
+        }
+        if (id.equals(OwnedVeinJob.VEIN)) {
+            return new OwnedVeinJob();
+        }
+        if (id.equals(AdditiveScatterJob.SCATTER)) {
+            return new AdditiveScatterJob();
+        }
+        for (StructurePlaceJob job : structures) {
+            if (id.equals(job.id())) {
+                return job;
+            }
+        }
+        throw new IllegalArgumentException(
+                "E_EXAMPLE_JOB:unknown <" + id + ">");
     }
 }

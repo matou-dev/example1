@@ -7,6 +7,16 @@ Full notes per tag: https://github.com/matou-dev/example1/releases.
 
 ## [Unreleased]
 
+- Authoring refactor (test-mod scaling audit): one `ExampleIds` table
+  (every `namespace:name` once, shared grid, count-code prefix — jobs
+  delegate, RNG addresses derive from the ids); snapshot counts via SPI
+  `Counts`, cell rendering via SPI `Cell` (decided bytes and RNG streams
+  unchanged, bridge comparateur still green); `ExamplePack` job registry
+  (`job(MatouId)` beside `jobs()`, new `fromFiles` overload over
+  pre-wired structures, duplicate ids refused); `ExampleCheck` lambdas +
+  `Refusal[]` batteries + registry coverage (same assertions plus 10,
+  gate output otherwise byte-identical). `tools/check.sh` honours
+  `MATOU_SPI_SRC`. Behaviour and error codes unchanged.
 - Refactor `StructurePlaceJob` table-driven in place (580 to 437 lines,
   back under the 450 design alert, no satellite split): single-parse
   `fromFile` delegating to a shared `wireRoot`, `String.join` for cycle

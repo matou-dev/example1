@@ -1,5 +1,6 @@
 package fr.iamacat.example1;
 
+import fr.iamacat.spi.Cell;
 import fr.iamacat.spi.MatouId;
 import fr.iamacat.spi.MatouJob;
 import fr.iamacat.spi.MatouParse;
@@ -27,11 +28,8 @@ import java.util.Set;
  * strict both ways otherwise. Cells are {@code "x,y,z:ns:block"}.
  */
 public final class StructurePlaceJob implements MatouJob<List<String>> {
-    public static final MatouId WELL =
-            MatouId.parse("example1.structures:well");
-    public static final MatouId HUT =
-            MatouId.parse("example1.structures:hut");
-    static final int CELLS = 16;
+    public static final MatouId WELL = ExampleIds.WELL;
+    public static final MatouId HUT = ExampleIds.HUT;
 
     private final MatouId id;
     private final int[] anchor;
@@ -77,7 +75,8 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
                 Long.toString(snap.tick()));
         List<String> out = new ArrayList<String>(count * treeVolume());
         for (int o = 0; o < count; o++) {
-            placeTree(this, rng.nextInt(CELLS), rng.nextInt(CELLS), rng, out);
+            placeTree(this, rng.nextInt(ExampleIds.GRID),
+                    rng.nextInt(ExampleIds.GRID), rng, out);
         }
         return Collections.unmodifiableList(out);
     }
@@ -89,9 +88,9 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
                 for (int dz = 0; dz < job.size[2]; dz++) {
                     String block = job.palette.get(
                             rng.nextInt(job.palette.size()));
-                    out.add((job.anchor[0] + ox + dx) + ","
-                            + (job.anchor[1] + dy) + ","
-                            + (job.anchor[2] + oz + dz) + ":" + block);
+                    out.add(Cell.of(job.anchor[0] + ox + dx,
+                            job.anchor[1] + dy, job.anchor[2] + oz + dz,
+                            block).render());
                 }
             }
         }

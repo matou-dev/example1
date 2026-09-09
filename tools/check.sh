@@ -11,8 +11,9 @@ if [ -n "$hits" ]; then
 fi
 echo "ok (zero-mc-import)"
 # M2 content gate : compile against the sibling ../spi checkout (convention
-# siblings, cf. hub README). Loud refusal when absent.
-SPI=../spi/java/src
+# siblings, cf. hub README). Loud refusal when absent. MATOU_SPI_SRC
+# overrides the path (same layout expected underneath).
+SPI=${MATOU_SPI_SRC:-../spi/java/src}
 [ -d "$SPI" ] || { echo "FAIL example1 : spi sibling absent (cloner hub+spi+example1 en siblings)"; exit 1; }
 mkdir -p java/build
 javac --release 8 -d java/build $(find "$SPI" java/src -name '*.java')

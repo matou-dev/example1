@@ -1,5 +1,7 @@
 package fr.iamacat.example1;
 
+import fr.iamacat.spi.Cell;
+import fr.iamacat.spi.Counts;
 import fr.iamacat.spi.MatouId;
 import fr.iamacat.spi.MatouJob;
 import fr.iamacat.spi.MatouRng;
@@ -17,31 +19,22 @@ import java.util.Set;
  * beyond matou-spi.
  */
 public final class AdditiveScatterJob implements MatouJob<List<String>> {
-    public static final MatouId SCATTER =
-            MatouId.parse("example1.overworld:scatter_additive");
-    static final int CELLS = 16;
+    public static final MatouId SCATTER = ExampleIds.SCATTER;
 
     public List<String> decide(Snapshot snap) {
         if (snap == null) {
             throw new NullPointerException("E_EXAMPLE_SNAPSHOT:null");
         }
-        int count = OwnedVeinJob.countOf(countRaw(snap), SCATTER);
-        MatouRng rng = MatouRng.forAddress("example1.overworld",
-                "scatter_additive", Long.toString(snap.tick()));
+        int count = Counts.positive(snap.get(SCATTER), SCATTER,
+                ExampleIds.COUNT_CODE);
+        MatouRng rng = MatouRng.forAddress(SCATTER.namespace, SCATTER.name,
+                Long.toString(snap.tick()));
         List<String> out = new ArrayList<String>(count);
         for (int i = 0; i < count; i++) {
-            out.add(rng.nextInt(CELLS) + "," + rng.nextInt(CELLS));
+            out.add(Cell.of(rng.nextInt(ExampleIds.GRID),
+                    rng.nextInt(ExampleIds.GRID)).render());
         }
         return Collections.unmodifiableList(out);
-    }
-
-    private static Object countRaw(Snapshot snap) {
-        Object raw = snap.get(SCATTER);
-        if (raw == null) {
-            throw new IllegalArgumentException(
-                    "E_EXAMPLE_COUNT:missing <example1.overworld:scatter_additive>");
-        }
-        return raw;
     }
 
     /**

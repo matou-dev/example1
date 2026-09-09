@@ -21,4 +21,5 @@ plus `structureFiles`/`structureRoot` for a cross-file root; without them
 the legacy 2-job pack is untouched). Pure jobs
 (`OwnedVeinJob`, `AdditiveScatterJob` + late `merge`) over `matou-spi`
 snapshots; self-test `java/test`, gate `tools/check.sh` (zero-MC +
-sibling-SPI compile + py/java content parity).
+sibling-SPI compile + py/java content parity). Writing another content
+pack? Start at `../spi/AUTHORING.md`.

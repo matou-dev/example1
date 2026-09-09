@@ -7,6 +7,13 @@ Full notes per tag: https://github.com/matou-dev/example1/releases.
 
 ## [Unreleased]
 
+- Refactor `StructurePlaceJob` table-driven in place (580 to 437 lines,
+  back under the 450 design alert, no satellite split): single-parse
+  `fromFile` delegating to a shared `wireRoot`, `String.join` for cycle
+  chains, `HashSet` position merge, one `vecOf` size/anchor table, one
+  `bad`/`reqList`/`reqNum`/`reqArg` wiring-error table. Behaviour and
+  error codes unchanged; gate still 153 oks including the 19-cell
+  cross-file `ext`.
 - Cross-file `parts`: `StructurePlaceJob.fromFiles` wires a qualified
   `namespace:name` root across a set of content files (one shared plane
   offset per occurrence, own volume first, depth-first listed order —

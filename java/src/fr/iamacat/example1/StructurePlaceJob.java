@@ -15,43 +15,16 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * V3 structure job: decides the cells of one structure volume from its
- * {@code anchor}/{@code size}/{@code palette} plus, recursively, its
- * {@code parts} (spec {@code SYNTAX-V3.md}). Pure (no IO, no Minecraft, no
- * clock): same snapshot in, equal decision out. Java 8, zero deps beyond
- * matou-spi.
+ * V3 structure job: one volume plus recursive {@code parts} (SYNTAX-V3).
+ * Pure (no IO, no Minecraft, no clock). Java 8, zero deps beyond matou-spi.
  *
- * <p>Split parser/job (same as {@code feature.count} refused by
- * {@link OwnedVeinJob}): the parser accepts any integers and any uniform
- * list, the job refuses non-positive extents ({@code E_EXAMPLE_SIZE}) and
- * an empty palette ({@code E_EXAMPLE_PALETTE}) loudly, never defaulted.
- *
- * <p>Composition: each occurrence places the own volume first, then parts
- * depth-first in listed order (landing order decides overlaps). Every
- * volume of the occurrence shares one plane offset, so the composed shape
- * survives the per-tick addressing: part anchors stay absolute, the offset
- * shifts the whole tree. A part's own {@code count} applies to standalone
- * wiring only; as a part it is placed once per parent occurrence. Parts
- * may live in other files ({@link #fromFiles}): import strictness is
- * parser-enforced ({@code E_MATOU_UNKNOWN_REF} unless the part namespace
- * is the file's own or declared via {@code from}), while file-set
- * completeness is wiring-enforced ({@code E_EXAMPLE_CONTENT:unknown
- * namespace} when an imported namespace has no loaded file). Cycles —
- * same-file or cross-file — are refused at wiring
- * ({@code E_EXAMPLE_PARTS:cycle}), never skipped silently.
- *
- * <p>Palette aliases ({@link #fromFile(String, String, Map)}): operator
- * bindings of content block refs to landable blocks (e.g. vanilla
- * names for the live run — content decides <i>where</i>, the operator
- * decides <i>what</i>, as with the wire block of plane cells). An empty
- * map is the identity; a non-empty map is strict both ways (unmapped
- * palette entry or unknown alias key both fail loudly at wiring).
- *
- * <p>Cells are {@code "x,y,z:ns:block"} strings. Per tick the job places
- * {@code count} occurrences (count read from the snapshot, as with
- * {@link OwnedVeinJob}); each occurrence offsets the tree in a 16x16 plane
- * and picks each cell block from the palette through the addressed RNG, so
- * the decision is deterministic per tick.
+ * <p>Parser accepts any integers/lists; the job refuses non-positive extents
+ * ({@code E_EXAMPLE_SIZE}) and empty palettes ({@code E_EXAMPLE_PALETTE}).
+ * Each occurrence places own volume first, then parts depth-first, sharing
+ * one plane offset. Cross-file parts ({@link #fromFiles}) are
+ * parser-strict on imports, wiring-strict on file-set completeness, and
+ * cycle-refusing — never defaulted. Palette aliases are identity when empty,
+ * strict both ways otherwise. Cells are {@code "x,y,z:ns:block"}.
  */
 public final class StructurePlaceJob implements MatouJob<List<String>> {
     public static final MatouId WELL =
@@ -70,41 +43,23 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
     public StructurePlaceJob(MatouId id, int[] anchor, int[] size,
             List<String> palette, List<StructurePlaceJob> parts,
             int count) {
-        if (id == null) {
-            throw new NullPointerException("E_EXAMPLE_STRUCT:null id");
-        }
+        reqArg(id, "E_EXAMPLE_STRUCT:null id");
         this.anchor = vecOf(anchor, "anchor", id);
-        this.size = sizeOf(size, id);
+        this.size = vecOf(size, "size", id);
         this.palette = paletteOf(palette, id);
         this.parts = partsOf(parts, id);
         this.contentCount = OwnedVeinJob.countOf(Integer.valueOf(count));
         this.id = id;
     }
 
-    public MatouId id() {
-        return id;
-    }
+    public MatouId id() { return id; }
+    public int[] anchor() { return anchor.clone(); }
+    public int[] size() { return size.clone(); }
+    public List<String> palette() { return palette; }
+    public List<StructurePlaceJob> parts() { return parts; }
 
-    public int[] anchor() {
-        return anchor.clone();
-    }
-
-    public int[] size() {
-        return size.clone();
-    }
-
-    public List<String> palette() {
-        return palette;
-    }
-
-    public List<StructurePlaceJob> parts() {
-        return parts;
-    }
-
-    /** Count parsed from the content file (tick counts come from snapshots). */
-    public int contentCount() {
-        return contentCount;
-    }
+    /** Count from the content file (tick counts come from snapshots). */
+    public int contentCount() { return contentCount; }
 
     /** Own volume plus every part volume, recursively (capacity hint). */
     int treeVolume() {
@@ -116,16 +71,13 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
     }
 
     public List<String> decide(Snapshot snap) {
-        if (snap == null) {
-            throw new NullPointerException("E_EXAMPLE_SNAPSHOT:null");
-        }
+        reqArg(snap, "E_EXAMPLE_SNAPSHOT:null");
         int count = OwnedVeinJob.countOf(snap.get(id), id);
         MatouRng rng = MatouRng.forAddress(id.namespace, id.name,
                 Long.toString(snap.tick()));
         List<String> out = new ArrayList<String>(count * treeVolume());
         for (int o = 0; o < count; o++) {
-            placeTree(this, rng.nextInt(CELLS), rng.nextInt(CELLS),
-                    rng, out);
+            placeTree(this, rng.nextInt(CELLS), rng.nextInt(CELLS), rng, out);
         }
         return Collections.unmodifiableList(out);
     }
@@ -148,121 +100,65 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
         }
     }
 
-    /**
-     * Owned/additif merge for structure cells (Q3-Q4, same rule as
-     * {@link AdditiveScatterJob#merge} but position-keyed): owned order
-     * preserved verbatim, additive cells appended only when their position
-     * ({@code x,y,z} before the first {@code :}) is absent — an additive
-     * block never replaces an owned one. Both inputs stay untouched.
-     */
+    /** Position-keyed merge: owned first verbatim, additive only on new pos. */
     public static List<String> merge(List<String> owned,
             List<String> additive) {
-        if (owned == null) {
-            throw new NullPointerException("E_EXAMPLE_MERGE:null owned");
-        }
-        if (additive == null) {
-            throw new NullPointerException("E_EXAMPLE_MERGE:null additive");
-        }
-        List<String> seen = new ArrayList<String>(owned.size());
+        reqArg(owned, "E_EXAMPLE_MERGE:null owned");
+        reqArg(additive, "E_EXAMPLE_MERGE:null additive");
+        Set<String> seen = new HashSet<String>();
         for (String cell : owned) {
             seen.add(posOf(cell));
         }
         List<String> out = new ArrayList<String>(owned);
         for (String cell : additive) {
-            String pos = posOf(cell);
-            if (!seen.contains(pos)) {
-                seen.add(pos);
+            if (seen.add(posOf(cell))) {
                 out.add(cell);
             }
         }
         return Collections.unmodifiableList(out);
     }
 
-    /**
-     * Wires one structure plus its part tree from a content file through
-     * the SPI reference parser, once (never on the tick path). Identity
-     * palette (content refs land as-is). Single-file convenience over
-     * {@link #fromFiles}: parts outside this file are refused loudly
-     * ({@code E_EXAMPLE_CONTENT:unknown namespace} — rewire through
-     * {@code fromFiles} with every providing file). Loud on unreadable /
-     * unparsable / missing structure / malformed fields / cycles — never
-     * defaulted.
-     */
+    /** Single-file wiring, identity palette (convenience over fromFiles). */
     public static StructurePlaceJob fromFile(String path, String name) {
         return fromFile(path, name,
                 Collections.<String, String>emptyMap());
     }
 
-    /**
-     * Wires one structure plus its part tree with palette aliases
-     * ({@code content-ref -> landable block}). An empty map is the
-     * identity; a non-empty map must cover every palette entry of the
-     * tree and hold no foreign key, else wiring fails loudly.
-     */
-    @SuppressWarnings("unchecked")
+    /** Single-file wiring with palette aliases (strict both ways). */
     public static StructurePlaceJob fromFile(String path, String name,
             Map<String, String> aliases) {
-        if (path == null) {
-            throw new NullPointerException(
-                    "E_EXAMPLE_CONTENT:null structure path");
-        }
-        if (name == null) {
-            throw new NullPointerException(
-                    "E_EXAMPLE_CONTENT:null structure name");
-        }
-        if (aliases == null) {
-            throw new NullPointerException(
-                    "E_EXAMPLE_CONTENT:null aliases");
-        }
-        String namespace =
-                String.valueOf(parseTree(path).get("namespace"));
-        return fromFiles(Collections.singletonList(path),
-                namespace + ":" + name, aliases);
+        reqArg(path, "E_EXAMPLE_CONTENT:null structure path");
+        reqArg(name, "E_EXAMPLE_CONTENT:null structure name");
+        reqArg(aliases, "E_EXAMPLE_CONTENT:null aliases");
+        Map<String, FileModel> files = loadFiles(
+                Collections.singletonList(path));
+        return wireRoot(files,
+                files.keySet().iterator().next() + ":" + name, aliases);
     }
 
-    /**
-     * Wires one structure plus its part tree from a set of content files,
-     * parsed once each through the SPI reference parser (never on the
-     * tick path). Identity palette (content refs land as-is). The root is
-     * a qualified {@code namespace:name}; parts resolve in whichever
-     * loaded file provides their namespace, depth-first in listed order.
-     * Loud on unreadable / unparsable / unknown namespace / missing
-     * structure / malformed fields / duplicate namespace / cycles — never
-     * defaulted.
-     */
+    /** Multi-file wiring, identity palette (root is qualified ns:name). */
     public static StructurePlaceJob fromFiles(List<String> paths,
             String qualifiedName) {
         return fromFiles(paths, qualifiedName,
                 Collections.<String, String>emptyMap());
     }
 
-    /**
-     * Wires one structure plus its part tree from a set of content files
-     * with palette aliases ({@code content-ref -> landable block}). An
-     * empty map is the identity; a non-empty map must cover every palette
-     * entry of the whole cross-file tree and hold no foreign key, else
-     * wiring fails loudly.
-     */
-    @SuppressWarnings("unchecked")
+    /** Multi-file wiring with palette aliases (strict over the tree). */
     public static StructurePlaceJob fromFiles(List<String> paths,
             String qualifiedName, Map<String, String> aliases) {
-        if (paths == null) {
-            throw new NullPointerException(
-                    "E_EXAMPLE_CONTENT:null structure files");
-        }
-        if (qualifiedName == null) {
-            throw new NullPointerException(
-                    "E_EXAMPLE_CONTENT:null structure name");
-        }
-        if (aliases == null) {
-            throw new NullPointerException(
-                    "E_EXAMPLE_CONTENT:null aliases");
-        }
+        reqArg(paths, "E_EXAMPLE_CONTENT:null structure files");
+        reqArg(qualifiedName, "E_EXAMPLE_CONTENT:null structure name");
+        reqArg(aliases, "E_EXAMPLE_CONTENT:null aliases");
         if (paths.isEmpty()) {
             throw new IllegalArgumentException(
                     "E_EXAMPLE_CONTENT:no structure files");
         }
-        Map<String, FileModel> files = loadFiles(paths);
+        return wireRoot(loadFiles(paths), qualifiedName, aliases);
+    }
+
+    /** Shared root wiring: root check, recursive resolve, alias coverage. */
+    private static StructurePlaceJob wireRoot(Map<String, FileModel> files,
+            String qualifiedName, Map<String, String> aliases) {
         MatouId root = MatouId.parse(qualifiedName);
         if (!files.containsKey(root.namespace)) {
             throw new IllegalArgumentException(
@@ -289,7 +185,6 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
         final String path;
         final String namespace;
         final Map<String, Map<String, Object>> structures;
-
         FileModel(String path, String namespace,
                 Map<String, Map<String, Object>> structures) {
             this.path = path;
@@ -298,32 +193,24 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
         }
     }
 
-    private static Map<String, Object> parseTree(String path) {
-        try {
-            return MatouParse.parseFile(path);
-        } catch (Exception e) {
-            throw new IllegalArgumentException(
-                    "E_EXAMPLE_CONTENT:unreadable <" + path + "> ("
-                            + e.getMessage() + ")");
-        }
-    }
-
     @SuppressWarnings("unchecked")
     private static Map<String, FileModel> loadFiles(List<String> paths) {
-        Map<String, FileModel> files =
-                new LinkedHashMap<String, FileModel>();
+        Map<String, FileModel> files = new LinkedHashMap<String, FileModel>();
         for (String path : paths) {
-            if (path == null) {
-                throw new NullPointerException(
-                        "E_EXAMPLE_CONTENT:null structure path");
+            reqArg(path, "E_EXAMPLE_CONTENT:null structure path");
+            Map<String, Object> tree;
+            try {
+                tree = MatouParse.parseFile(path);
+            } catch (Exception e) {
+                throw new IllegalArgumentException(
+                        "E_EXAMPLE_CONTENT:unreadable <" + path + "> ("
+                                + e.getMessage() + ")");
             }
-            Map<String, Object> tree = parseTree(path);
             String namespace = String.valueOf(tree.get("namespace"));
             if (files.containsKey(namespace)) {
                 throw new IllegalArgumentException(
-                        "E_EXAMPLE_CONTENT:duplicate namespace <"
-                                + namespace + "> (<"
-                                + files.get(namespace).path + "> vs <"
+                        "E_EXAMPLE_CONTENT:duplicate namespace <" + namespace
+                                + "> (<" + files.get(namespace).path + "> vs <"
                                 + path + ">)");
             }
             Map<String, Map<String, Object>> byName =
@@ -331,13 +218,9 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
             Object instances = tree.get("instances");
             if (instances instanceof List) {
                 for (Object o : (List<Object>) instances) {
-                    if (!(o instanceof Map)) {
-                        continue;
-                    }
+                    if (!(o instanceof Map)) continue;
                     Map<String, Object> inst = (Map<String, Object>) o;
-                    if (!"Structure".equals(inst.get("decl"))) {
-                        continue;
-                    }
+                    if (!"Structure".equals(inst.get("decl"))) continue;
                     Object fields = inst.get("fields");
                     if (fields instanceof Map) {
                         byName.put(String.valueOf(inst.get("name")),
@@ -345,8 +228,7 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
                     }
                 }
             }
-            files.put(namespace,
-                    new FileModel(path, namespace, byName));
+            files.put(namespace, new FileModel(path, namespace, byName));
         }
         return files;
     }
@@ -359,8 +241,8 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
         if (chain.contains(qualified)) {
             List<String> cycle = new ArrayList<String>(chain);
             cycle.add(qualified);
-            throw new IllegalArgumentException(
-                    "E_EXAMPLE_PARTS:cycle <" + join(cycle, " -> ") + ">");
+            throw new IllegalArgumentException("E_EXAMPLE_PARTS:cycle <"
+                    + String.join(" -> ", cycle) + ">");
         }
         FileModel target = files.get(refNs);
         if (target == null) {
@@ -387,9 +269,7 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
         for (String ref : rawParts) {
             int cut = ref.indexOf(':');
             if (cut < 0) {
-                throw new IllegalArgumentException(
-                        "E_EXAMPLE_CONTENT:bad parts <" + refName + "> in <"
-                                + target.path + ">");
+                throw bad("parts", refName, target.path);
             }
             parts.add(resolveRef(files, target, ref.substring(0, cut),
                     ref.substring(cut + 1), visiting, aliases, used));
@@ -406,9 +286,7 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
     private static List<String> substitute(List<String> palette,
             Map<String, String> aliases, Set<String> used, String name,
             String path) {
-        if (aliases.isEmpty()) {
-            return palette;
-        }
+        if (aliases.isEmpty()) return palette;
         List<String> out = new ArrayList<String>(palette.size());
         for (String entry : palette) {
             String to = aliases.get(entry);
@@ -428,21 +306,8 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
         return out;
     }
 
-    private static String join(List<String> items, String sep) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < items.size(); i++) {
-            if (i > 0) {
-                sb.append(sep);
-            }
-            sb.append(items.get(i));
-        }
-        return sb.toString();
-    }
-
     private static String posOf(String cell) {
-        if (cell == null) {
-            throw new NullPointerException("E_EXAMPLE_MERGE:null cell");
-        }
+        reqArg(cell, "E_EXAMPLE_MERGE:null cell");
         int cut = cell.indexOf(':');
         if (cut < 0) {
             throw new IllegalArgumentException(
@@ -451,35 +316,30 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
         return cell.substring(0, cut);
     }
 
+    /**
+     * Ctor vec table: {@code anchor} wants any 3-vector, {@code size} wants
+     * all components positive — one shape check, one range rule by name.
+     */
     private static int[] vecOf(int[] v, String what, MatouId id) {
-        if (v == null) {
-            throw new NullPointerException(
-                    "E_EXAMPLE_STRUCT:null " + what + " <" + id + ">");
-        }
+        reqArg(v, "E_EXAMPLE_STRUCT:null " + what + " <" + id + ">");
         if (v.length != 3) {
             throw new IllegalArgumentException("E_EXAMPLE_SIZE:shape <"
                     + what + " len " + v.length + "> (want 3)");
         }
+        if ("size".equals(what)) {
+            for (int c : v) {
+                if (c <= 0) {
+                    throw new IllegalArgumentException(
+                            "E_EXAMPLE_SIZE:range <" + v[0] + "," + v[1]
+                                    + "," + v[2] + "> (want all > 0)");
+                }
+            }
+        }
         return v.clone();
     }
 
-    private static int[] sizeOf(int[] v, MatouId id) {
-        int[] size = vecOf(v, "size", id);
-        for (int i = 0; i < 3; i++) {
-            if (size[i] <= 0) {
-                throw new IllegalArgumentException("E_EXAMPLE_SIZE:range <"
-                        + size[0] + "," + size[1] + "," + size[2]
-                        + "> (want all > 0)");
-            }
-        }
-        return size;
-    }
-
     private static List<String> paletteOf(List<String> palette, MatouId id) {
-        if (palette == null) {
-            throw new NullPointerException(
-                    "E_EXAMPLE_STRUCT:null palette <" + id + ">");
-        }
+        reqArg(palette, "E_EXAMPLE_STRUCT:null palette <" + id + ">");
         if (palette.isEmpty()) {
             throw new IllegalArgumentException(
                     "E_EXAMPLE_PALETTE:empty <" + id + ">");
@@ -496,47 +356,57 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
 
     private static List<StructurePlaceJob> partsOf(
             List<StructurePlaceJob> parts, MatouId id) {
-        if (parts == null) {
-            throw new NullPointerException(
-                    "E_EXAMPLE_STRUCT:null parts <" + id + ">");
-        }
-        List<StructurePlaceJob> copy =
-                new ArrayList<StructurePlaceJob>(parts);
+        reqArg(parts, "E_EXAMPLE_STRUCT:null parts <" + id + ">");
+        List<StructurePlaceJob> copy = new ArrayList<StructurePlaceJob>(parts);
         for (StructurePlaceJob part : copy) {
-            if (part == null) {
-                throw new NullPointerException(
-                        "E_EXAMPLE_STRUCT:null part <" + id + ">");
-            }
+            reqArg(part, "E_EXAMPLE_STRUCT:null part <" + id + ">");
         }
         return Collections.unmodifiableList(copy);
     }
 
-    private static int[] intsOf(Object raw, String field, String name,
+    /** Null table: every null arg shares one throw shape (code varies). */
+    private static void reqArg(Object v, String code) {
+        if (v == null) {
+            throw new NullPointerException(code);
+        }
+    }
+
+    /** Wiring error table: every bad field shares one shape message. */
+    private static IllegalArgumentException bad(String field, String name,
+            String path) {
+        return new IllegalArgumentException("E_EXAMPLE_CONTENT:bad " + field
+                + " <" + name + "> in <" + path + ">");
+    }
+
+    /** Wiring list table: every list field flows through one shape check. */
+    private static List<?> reqList(Object raw, String field, String name,
             String path) {
         if (!(raw instanceof List)) {
-            throw new IllegalArgumentException(
-                    "E_EXAMPLE_CONTENT:bad " + field + " <" + name
-                            + "> in <" + path + ">");
+            throw bad(field, name, path);
         }
-        List<?> items = (List<?>) raw;
+        return (List<?>) raw;
+    }
+
+    /** Wiring number table: every number field flows through one check. */
+    private static long reqNum(Object raw, String field, String name,
+            String path) {
+        if (!(raw instanceof Number)) {
+            throw bad(field, name, path);
+        }
+        return ((Number) raw).longValue();
+    }
+
+    private static int[] intsOf(Object raw, String field, String name,
+            String path) {
+        List<?> items = reqList(raw, field, name, path);
         if (items.size() != 3) {
-            throw new IllegalArgumentException(
-                    "E_EXAMPLE_CONTENT:bad " + field + " <" + name
-                            + "> in <" + path + ">");
+            throw bad(field, name, path);
         }
         int[] out = new int[3];
         for (int i = 0; i < 3; i++) {
-            Object e = items.get(i);
-            if (!(e instanceof Number)) {
-                throw new IllegalArgumentException(
-                        "E_EXAMPLE_CONTENT:bad " + field + " <" + name
-                                + "> in <" + path + ">");
-            }
-            long v = ((Number) e).longValue();
+            long v = reqNum(items.get(i), field, name, path);
             if (v < Integer.MIN_VALUE || v > Integer.MAX_VALUE) {
-                throw new IllegalArgumentException(
-                        "E_EXAMPLE_CONTENT:bad " + field + " range <" + name
-                                + "> in <" + path + ">");
+                throw bad(field + " range", name, path);
             }
             out[i] = (int) v;
         }
@@ -545,17 +415,11 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
 
     private static List<String> refsOf(Object raw, String field, String name,
             String path) {
-        if (!(raw instanceof List)) {
-            throw new IllegalArgumentException(
-                    "E_EXAMPLE_CONTENT:bad " + field + " <" + name
-                            + "> in <" + path + ">");
-        }
-        List<String> out = new ArrayList<String>();
-        for (Object e : (List<?>) raw) {
+        List<?> items = reqList(raw, field, name, path);
+        List<String> out = new ArrayList<String>(items.size());
+        for (Object e : items) {
             if (!(e instanceof String)) {
-                throw new IllegalArgumentException(
-                        "E_EXAMPLE_CONTENT:bad " + field + " <" + name
-                                + "> in <" + path + ">");
+                throw bad(field, name, path);
             }
             out.add((String) e);
         }
@@ -564,16 +428,9 @@ public final class StructurePlaceJob implements MatouJob<List<String>> {
 
     private static int numOf(Object raw, String field, String name,
             String path) {
-        if (!(raw instanceof Number)) {
-            throw new IllegalArgumentException(
-                    "E_EXAMPLE_CONTENT:bad " + field + " <" + name
-                            + "> in <" + path + ">");
-        }
-        long v = ((Number) raw).longValue();
+        long v = reqNum(raw, field, name, path);
         if (v <= 0 || v > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException(
-                    "E_EXAMPLE_CONTENT:bad " + field + " <" + name
-                            + "> in <" + path + ">");
+            throw bad(field, name, path);
         }
         return (int) v;
     }

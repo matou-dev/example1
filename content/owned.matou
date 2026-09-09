@@ -1,0 +1,34 @@
+syntax 1
+namespace example1.content
+
+genre Block : Data
+field hardness : f32
+field opaque : bool
+
+genre Item : Data
+field stack : u32
+field label : string
+
+genre Mob : Data
+field hp : u32
+field drop : item_ref
+
+genre Feature : Data
+field block : block_ref
+field count : u32
+
+block my_ore
+  hardness = 3.0
+  opaque = true
+
+item my_gem
+  stack = 64
+  label = "shiny"
+
+mob my_beast
+  hp = 20
+  drop = example1.content:my_gem
+
+feature my_vein
+  block = example1.content:my_ore
+  count = 8

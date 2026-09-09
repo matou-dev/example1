@@ -1,0 +1,13 @@
+syntax 1
+namespace example1.overworld
+
+from example1.content use block.my_ore
+
+genre Feature : Data
+field block : block_ref
+field count : u32
+
+# Late additive scatter: references owned content, never replaces it.
+feature scatter_additive
+  block = example1.content:my_ore
+  count = 4

@@ -157,6 +157,76 @@ public final class ExampleCheck {
             }
         }, "merge null additive");
 
+        // --- B2 pack: counts from source files, jobs exposed, loud setup ---
+        final ExamplePack pack = ExamplePack.fromFiles(
+                "content/owned.matou", "content/additive.matou");
+        check(pack.namespace().equals("example1"), "pack namespace");
+        Map<MatouId, Object> packStates = pack.states(7L);
+        check(packStates.get(OwnedVeinJob.VEIN).equals(Long.valueOf(8L)),
+                "pack owned count 8");
+        check(packStates.get(AdditiveScatterJob.SCATTER)
+                .equals(Long.valueOf(4L)), "pack scatter count 4");
+        check(pack.jobs().size() == 2, "pack 2 jobs");
+        Snapshot packSnap = new Snapshot(7L, packStates);
+        check(pack.jobs().get(0).decide(packSnap).size() == 8,
+                "pack owned decides 8");
+        check(pack.jobs().get(1).decide(packSnap).size() == 4,
+                "pack additive decides 4");
+        try {
+            pack.states(7L).put(OwnedVeinJob.VEIN, Long.valueOf(1L));
+            check(false, "pack states immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : pack states immutable");
+        }
+        try {
+            new ExamplePack().states(7L);
+            check(false, "pack unconfigured");
+        } catch (IllegalStateException e) {
+            System.out.println("ok example1 : refused unconfigured ("
+                    + e.getMessage() + ")");
+        }
+        expectRefused(new Runnable() {
+            public void run() {
+                new ExamplePack(0, 4);
+            }
+        }, "pack count 0");
+        expectRefused(new Runnable() {
+            public void run() {
+                pack.states(-1L);
+            }
+        }, "pack negative tick");
+        expectNullRefused(new Runnable() {
+            public void run() {
+                ExamplePack.fromFiles(null, "content/additive.matou");
+            }
+        }, "pack null path");
+        expectNullRefused(new Runnable() {
+            public void run() {
+                new ExamplePack().configure(null);
+            }
+        }, "pack null args");
+        expectRefused(new Runnable() {
+            public void run() {
+                Map<String, String> args = new HashMap<String, String>();
+                args.put("ownedFile", "content/owned.matou");
+                new ExamplePack().configure(args);
+            }
+        }, "pack missing key");
+        expectRefused(new Runnable() {
+            public void run() {
+                Map<String, String> args = new HashMap<String, String>();
+                args.put("ownedFile", "content/nope.matou");
+                args.put("scatterFile", "content/additive.matou");
+                new ExamplePack().configure(args);
+            }
+        }, "pack bad path");
+        Map<String, String> cfg = new HashMap<String, String>();
+        cfg.put("ownedFile", "content/owned.matou");
+        cfg.put("scatterFile", "content/additive.matou");
+        ExamplePack viaCfg = new ExamplePack();
+        viaCfg.configure(cfg);
+        check(viaCfg.states(7L).equals(packStates), "pack configure wires");
+
         System.out.println("ok example1 : all");
     }
 }

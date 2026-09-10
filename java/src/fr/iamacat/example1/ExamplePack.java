@@ -87,15 +87,8 @@ public final class ExamplePack implements ConfigurablePack,
     /** Wired pack: {@code structure} is shared (immutable, pure). */
     public ExamplePack(int ownedCount, int scatterCount,
             StructurePlaceJob structure) {
-        this(ownedCount, scatterCount, singleton(structure));
-    }
-
-    private static List<StructurePlaceJob> singleton(
-            StructurePlaceJob structure) {
-        if (structure == null) {
-            throw new NullPointerException("E_EXAMPLE_STRUCT:null job");
-        }
-        return Collections.singletonList(structure);
+        this(ownedCount, scatterCount,
+                Collections.singletonList(structure));
     }
 
     /**
@@ -166,43 +159,25 @@ public final class ExamplePack implements ConfigurablePack,
                     "E_EXAMPLE_CONTENT:missing key <scatterFile>");
         }
         ExamplePack ready;
-        String structurePath = args.get(STRUCTURE_KEY);
-        String extraPaths = args.get(STRUCTURE_FILES_KEY);
-        String structureRoot = args.get(STRUCTURE_ROOT_KEY);
-        if (structurePath == null && extraPaths == null) {
-            if (structureRoot != null) {
-                throw new IllegalArgumentException(
-                        "E_EXAMPLE_CONTENT:structureRoot without"
-                                + " structure file(s)");
-            }
+        List<String> structPaths = wiredPaths(args, STRUCTURE_KEY,
+                STRUCTURE_FILES_KEY, STRUCTURE_ROOT_KEY, "structure");
+        if (structPaths == null) {
             ready = fromFiles(owned, scatter);
         } else {
-            List<String> structPaths = new ArrayList<String>();
-            if (structurePath != null) {
-                structPaths.add(structurePath);
+            String root = args.get(STRUCTURE_ROOT_KEY);
+            if (root == null) {
+                root = StructurePlaceJob.HUT.toString();
             }
-            structPaths.addAll(splitPaths(extraPaths, STRUCTURE_FILES_KEY));
-            String root = structureRoot != null ? structureRoot
-                    : StructurePlaceJob.HUT.toString();
             ready = fromFiles(owned, scatter, structPaths, root,
                     prefixedArgs(args, BLOCK_ALIAS_PREFIX));
         }
-        String veinPath = args.get(VEIN_KEY);
-        String veinExtra = args.get(VEIN_FILES_KEY);
-        String veinRoot = args.get(VEIN_ROOT_KEY);
-        if (veinPath == null && veinExtra == null) {
-            if (veinRoot != null) {
-                throw new IllegalArgumentException(
-                        "E_EXAMPLE_CONTENT:veinRoot without vein file(s)");
+        List<String> veinPaths = wiredPaths(args, VEIN_KEY,
+                VEIN_FILES_KEY, VEIN_ROOT_KEY, "vein");
+        if (veinPaths != null) {
+            String root = args.get(VEIN_ROOT_KEY);
+            if (root == null) {
+                root = VeinPlaceJob.ORE.toString();
             }
-        } else {
-            List<String> veinPaths = new ArrayList<String>();
-            if (veinPath != null) {
-                veinPaths.add(veinPath);
-            }
-            veinPaths.addAll(splitPaths(veinExtra, VEIN_FILES_KEY));
-            String root = veinRoot != null ? veinRoot
-                    : VeinPlaceJob.ORE.toString();
             ready = fromFiles(ready, VeinPlaceJob.fromFiles(veinPaths,
                     root, prefixedArgs(args, VEIN_BLOCK_PREFIX)));
         }
@@ -213,6 +188,31 @@ public final class ExamplePack implements ConfigurablePack,
         this.loot = ready.loot;
         this.spawn = ready.spawn;
         this.configured = true;
+    }
+
+    /**
+     * Combined {@code [single + plural]} wire paths, or null when neither
+     * key is set (a root without files refuses loudly — one derivation
+     * point for the structure and the vein families, same messages as
+     * the former twin loops, never defaulted).
+     */
+    private static List<String> wiredPaths(Map<String, String> args,
+            String single, String plural, String root, String kind) {
+        String one = args.get(single);
+        String extra = args.get(plural);
+        if (one == null && extra == null) {
+            if (args.get(root) != null) {
+                throw new IllegalArgumentException("E_EXAMPLE_CONTENT:"
+                        + kind + "Root without " + kind + " file(s)");
+            }
+            return null;
+        }
+        List<String> paths = new ArrayList<String>();
+        if (one != null) {
+            paths.add(one);
+        }
+        paths.addAll(splitPaths(extra, plural));
+        return paths;
     }
 
     /**
@@ -244,10 +244,10 @@ public final class ExamplePack implements ConfigurablePack,
     }
 
     /**
-     * Parses all three content files once; the structure file wires the
-     * composite {@code hut} (name derived from {@link StructurePlaceJob#HUT},
-     * never recopied) with identity palette. Loud on unreadable / missing
-     * structure — never defaulted.
+     * Same loud-never-defaulted contract as the full structure overload
+     * below, wiring the composite {@code hut} (name derived from
+     * {@link StructurePlaceJob#HUT}, never recopied) with identity
+     * palette.
      */
     public static ExamplePack fromFiles(String ownedPath,
             String scatterPath, String structurePath) {
@@ -256,10 +256,9 @@ public final class ExamplePack implements ConfigurablePack,
     }
 
     /**
-     * Parses all three content files once with palette aliases
-     * ({@code content-ref -> landable block}, strict both ways). Loud on
-     * unreadable / missing structure / unmapped palette / unknown alias —
-     * never defaulted.
+     * Same loud-never-defaulted contract as the full structure overload
+     * below, plus palette aliases ({@code content-ref -> landable
+     * block}, strict both ways).
      */
     public static ExamplePack fromFiles(String ownedPath,
             String scatterPath, String structurePath,
@@ -300,26 +299,43 @@ public final class ExamplePack implements ConfigurablePack,
                     "E_EXAMPLE_CONTENT:null aliases");
         }
         ExamplePack legacy = fromFiles(ownedPath, scatterPath);
-        return new ExamplePack(legacy.ownedCount, legacy.scatterCount,
-                Collections.singletonList(StructurePlaceJob.fromFiles(
-                        structurePaths, structureRoot, aliases)));
+        return withStructures(legacy, Collections.singletonList(
+                StructurePlaceJob.fromFiles(structurePaths,
+                        structureRoot, aliases)));
     }
 
     /**
-     * Parses owned/scatter once and registers already-wired structures
-     * (each wired separately, e.g. via {@link StructurePlaceJob#fromFiles},
-     * so per-tree alias coverage stays strict). This is the growth path:
-     * a further job joins the registry here, no new overload needed.
-     */
+      * Wires already-built structures onto a wired pack (each wired
+      * separately, e.g. via {@link StructurePlaceJob#fromFiles}, so
+      * per-tree alias coverage stays strict). The T4 policy rides along
+      * untouched (structure files never fund tables — same rule as the
+      * vein path below). This is the growth path: a further job joins
+      * the registry here, no new overload needed.
+      */
     public static ExamplePack fromFiles(String ownedPath,
             String scatterPath, List<StructurePlaceJob> structures) {
         if (structures == null) {
             throw new NullPointerException(
                     "E_EXAMPLE_CONTENT:null structures");
         }
-        ExamplePack legacy = fromFiles(ownedPath, scatterPath);
-        return new ExamplePack(legacy.ownedCount, legacy.scatterCount,
+        return withStructures(fromFiles(ownedPath, scatterPath),
                 structures);
+    }
+
+    /**
+     * Shared structure-wiring tail: validates the structure list once
+     * (null entries and duplicate ids refuse loudly) and carries the
+     * sealed T4 policy across (a structure-wired pack serves the same
+     * tables as its legacy source — dropping them was a silent default
+     * wearing a loud message).
+     */
+    private static ExamplePack withStructures(ExamplePack legacy,
+            List<StructurePlaceJob> structures) {
+        ExamplePack pack = new ExamplePack(legacy.ownedCount,
+                legacy.scatterCount, structures);
+        pack.loot = legacy.loot;
+        pack.spawn = legacy.spawn;
+        return pack;
     }
 
     /**
@@ -467,31 +483,48 @@ public final class ExamplePack implements ConfigurablePack,
     }
 
     /**
-     * Registry lookup by id: owned and additive jobs resolve to fresh
-     * equivalents (they are stateless), structures and the vein to the
-     * wired instance. Unknown ids are refused loudly — callers never index
-     * {@link #jobs()} positionally.
-     */
+      * Registry lookup by id over {@link #jobs()}: owned and additive
+      * jobs resolve to fresh equivalents (they are stateless), structures
+      * and the vein to the wired instance. The order lives in
+      * {@link #jobs()} alone — a further job joins the lookup by joining
+      * the list, never this method. Unknown ids are refused loudly —
+      * callers never index {@link #jobs()} positionally.
+      */
     public MatouJob<List<String>> job(MatouId id) {
         if (id == null) {
             throw new NullPointerException("E_EXAMPLE_JOB:null id");
         }
-        if (id.equals(OwnedVeinJob.VEIN)) {
-            return new OwnedVeinJob();
-        }
-        if (id.equals(AdditiveScatterJob.SCATTER)) {
-            return new AdditiveScatterJob();
-        }
-        for (StructurePlaceJob job : structures) {
-            if (id.equals(job.id())) {
+        for (MatouJob<List<String>> job : jobs()) {
+            if (idOf(job).equals(id)) {
                 return job;
             }
         }
-        if (vein != null && id.equals(vein.id())) {
-            return vein;
-        }
         throw new IllegalArgumentException(
                 "E_EXAMPLE_JOB:unknown <" + id + ">");
+    }
+
+    /**
+     * Id projection over the pack's own jobs (the {@link MatouJob}
+     * contract carries no id — the pack knows its four shapes, same
+     * precedence as the former lookup chain). Never defaulted: a
+     * foreign job here is an internal leak, refused loudly under the
+     * job-resolution code.
+     */
+    private static MatouId idOf(MatouJob<List<String>> job) {
+        if (job instanceof StructurePlaceJob) {
+            return ((StructurePlaceJob) job).id();
+        }
+        if (job instanceof VeinPlaceJob) {
+            return ((VeinPlaceJob) job).id();
+        }
+        if (job instanceof AdditiveScatterJob) {
+            return AdditiveScatterJob.SCATTER;
+        }
+        if (job instanceof OwnedVeinJob) {
+            return OwnedVeinJob.VEIN;
+        }
+        throw new IllegalStateException("E_EXAMPLE_JOB:unknown <"
+                + job.getClass().getName() + "> (pack jobs only)");
     }
 
     /** True once a vein file was wired (legacy packs stay vein-free). */
@@ -538,9 +571,20 @@ public final class ExamplePack implements ConfigurablePack,
         }
     }
 
-    public Map<String, String> lootDrops() {
+    /** Sealed loot table, or the loud unwired refusal (never a guess). */
+    private LootTable loot() {
         requirePolicy();
-        return loot.drops();
+        return loot;
+    }
+
+    /** Sealed spawn table, or the loud unwired refusal (never a guess). */
+    private SpawnTable spawn() {
+        requirePolicy();
+        return spawn;
+    }
+
+    public Map<String, String> lootDrops() {
+        return loot().drops();
     }
 
     public String lootOreKind() {
@@ -554,38 +598,31 @@ public final class ExamplePack implements ConfigurablePack,
     }
 
     public long lootCount() {
-        requirePolicy();
-        return loot.count();
+        return loot().count();
     }
 
     public String spawnMob() {
-        requirePolicy();
-        return spawn.mob();
+        return spawn().mob();
     }
 
     public long spawnHp() {
-        requirePolicy();
-        return spawn.hp();
+        return spawn().hp();
     }
 
     public long spawnCap() {
-        requirePolicy();
-        return spawn.cap();
+        return spawn().cap();
     }
 
     public long spawnBudget() {
-        requirePolicy();
-        return spawn.budget();
+        return spawn().budget();
     }
 
     public long spawnYMin() {
-        requirePolicy();
-        return spawn.yMin();
+        return spawn().yMin();
     }
 
     public long spawnYMax() {
-        requirePolicy();
-        return spawn.yMax();
+        return spawn().yMax();
     }
 
     public MatouJob<List<String>> lootJob() {

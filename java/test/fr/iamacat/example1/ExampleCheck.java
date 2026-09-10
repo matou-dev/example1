@@ -1734,6 +1734,44 @@ public final class ExampleCheck {
                 "pack configure wires policy");
         check(viaCfg.lootDrops().equals(pack.lootDrops()),
                 "pack configure wires drops");
+        // Policy rides every wiring path (structure/vein files never fund
+        // tables): a structured, configured-structured or veined pack
+        // serves the same sealed values as the legacy pack — the bridge
+        // reads policy only through this interface, so equal values mean
+        // identical sealed outputs on every path.
+        final ExamplePack structured = ExamplePack.fromFiles(
+                "content/owned.matou", "content/additive.matou",
+                "content/structure.matou");
+        check(structured.lootDrops().equals(pack.lootDrops()),
+                "pack structured wires drops");
+        check(structured.lootCount() == pack.lootCount()
+                && structured.lootOreKind().equals(pack.lootOreKind())
+                && structured.lootBeastKind().equals(pack.lootBeastKind()),
+                "pack structured wires loot policy");
+        check(structured.spawnMob().equals(pack.spawnMob())
+                && structured.spawnHp() == pack.spawnHp()
+                && structured.spawnCap() == pack.spawnCap()
+                && structured.spawnBudget() == pack.spawnBudget()
+                && structured.spawnYMin() == pack.spawnYMin()
+                && structured.spawnYMax() == pack.spawnYMax(),
+                "pack structured wires spawn policy");
+        check(structured.lootJob() instanceof LootJob
+                && structured.spawnJob() instanceof SpawnJob,
+                "pack structured serves fresh jobs");
+        Map<String, String> cfgS = new HashMap<String, String>(cfg);
+        cfgS.put("structureFile", "content/structure.matou");
+        ExamplePack viaCfgS = new ExamplePack();
+        viaCfgS.configure(cfgS);
+        check(viaCfgS.lootDrops().equals(pack.lootDrops())
+                && viaCfgS.spawnMob().equals(pack.spawnMob()),
+                "pack configure+structure wires policy");
+        final VeinPlaceJob plainVein = VeinPlaceJob.fromFile(
+                "content/vein.matou", "ore_vein");
+        final ExamplePack veined =
+                ExamplePack.fromFiles(structured, plainVein);
+        check(veined.lootDrops().equals(pack.lootDrops())
+                && veined.spawnMob().equals(pack.spawnMob()),
+                "pack veined wires policy");
         final ExamplePack bare = new ExamplePack();
         final ExamplePack counts = new ExamplePack(8, 4);
         Runnable[] unwired = new Runnable[]{

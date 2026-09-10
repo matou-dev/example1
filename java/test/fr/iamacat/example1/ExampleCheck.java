@@ -933,6 +933,78 @@ public final class ExampleCheck {
                     Float.POSITIVE_INFINITY, true);
         }, "blockspec infinite hardness");
 
+        // --- itemspec: registration source, parse-once from owned ---
+        List<ItemSpec> itemSpecs =
+                ItemSpec.fromFile("content/owned.matou");
+        check(itemSpecs.size() == 1, "itemspec count 1");
+        ItemSpec gem = itemSpecs.get(0);
+        check(gem.namespace().equals("example1.content"),
+                "itemspec namespace");
+        check(gem.name().equals("my_gem"), "itemspec name");
+        check(gem.stack() == 64, "itemspec stack");
+        check(gem.label().equals("shiny"), "itemspec label");
+        check(ItemSpec.fromFile("content/additive.matou").isEmpty(),
+                "itemspec no items is empty");
+        try {
+            itemSpecs.add(gem);
+            check(false, "itemspec list immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : itemspec list immutable");
+        }
+        checkRefused(new Refusal[]{
+            new Refusal(() -> {
+                ItemSpec.fromFile("content/nope.matou");
+            }, "itemspec unreadable"),
+            new Refusal(() -> {
+                ItemSpec.fromFile(tmpMatou("item my_gem\n"
+                        + "  label = \"shiny\"\n"));
+            }, "itemspec missing stack"),
+            new Refusal(() -> {
+                ItemSpec.fromFile(tmpMatou("item my_gem\n"
+                        + "  stack = 0\n"
+                        + "  label = \"shiny\"\n"));
+            }, "itemspec zero stack"),
+            new Refusal(() -> {
+                ItemSpec.fromFile(tmpMatou("item my_gem\n"
+                        + "  stack = 65\n"
+                        + "  label = \"shiny\"\n"));
+            }, "itemspec over stack"),
+            new Refusal(() -> {
+                ItemSpec.fromFile(tmpMatou("item my_gem\n"
+                        + "  stack = 64\n"));
+            }, "itemspec missing label"),
+            new Refusal(() -> {
+                ItemSpec.fromFile(tmpMatou("item my_gem\n"
+                        + "  stack = 64\n"
+                        + "  label = 42\n"));
+            }, "itemspec bad label"),
+        });
+        checkNullRefused(new Refusal[]{
+            new Refusal(() -> {
+                ItemSpec.fromFile(null);
+            }, "itemspec null path"),
+        });
+        expectRefused(() -> {
+            new ItemSpec("example1.content", "", 64, "shiny");
+        }, "itemspec empty name");
+        expectRefused(() -> {
+            new ItemSpec("example1.content", "my_gem", 0, "shiny");
+        }, "itemspec non-positive stack");
+        expectRefused(() -> {
+            new ItemSpec("example1.content", "my_gem", 65, "shiny");
+        }, "itemspec over max stack");
+        checkNullRefused(new Refusal[]{
+            new Refusal(() -> {
+                new ItemSpec(null, "my_gem", 64, "shiny");
+            }, "itemspec null namespace"),
+            new Refusal(() -> {
+                new ItemSpec("example1.content", null, 64, "shiny");
+            }, "itemspec null name"),
+            new Refusal(() -> {
+                new ItemSpec("example1.content", "my_gem", 64, null);
+            }, "itemspec null label"),
+        });
+
         // --- vein job: seeded clusters, snapshot-sealed size, named refusals ---
         final VeinPlaceJob oreVein = VeinPlaceJob.fromFile(
                 "content/vein.matou", "ore_vein");

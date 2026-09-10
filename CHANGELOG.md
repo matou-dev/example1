@@ -7,6 +7,15 @@ Full notes per tag: https://github.com/matou-dev/example1/releases.
 
 ## [Unreleased]
 
+- Vein V4 (`content/vein.matou`, SYNTAX-V4): pure `VeinPlaceJob`
+  (seeded solid clusters of one block on the `BASE_Y = 60` band, count +
+  size from snapshot states with `Counts`-style refusals, `veinblock.`
+  operator aliases strict both ways); `ExamplePack` wires it as an
+  optional fourth job (`veinFile`/`veinFiles`/`veinRoot` keys, legacy
+  packs vein-free and behaviour-identical); gate battery (purity,
+  tick/seed addressing, y band, seal-vs-wire comparateur over 40
+  ticks, wiring refusals); `check_content.py` pins the vein shape.
+
 - Authoring refactor (test-mod scaling audit): one `ExampleIds` table
   (every `namespace:name` once, shared grid, count-code prefix — jobs
   delegate, RNG addresses derive from the ids); snapshot counts via SPI

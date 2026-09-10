@@ -33,7 +33,12 @@ import java.util.Set;
  * {@code block.<ref>} operator args ({@code content-ref -> landable
  * block}, strict both ways, empty = identity): content decides
  * <i>where</i>, the operator decides <i>what</i>, as with the wire block
- * of plane cells. The decide path is fully wired (pure, shape-agnostic
+ * of plane cells. A vein (SYNTAX-V4, {@link VeinPlaceJob}) is optional
+ * and additive: {@code veinFile} (plus optional {@code veinFiles} /
+ * {@code veinRoot}, default {@code example1.veins:ore_vein}) wires it as
+ * fourth job, its single block mapped through {@code veinblock.<ref>}
+ * operator args (strict both ways, empty = identity) — a separate
+ * prefix so structure palettes keep their own strictness. The decide path is fully wired (pure, shape-agnostic
  * merge); landing {@code x,y,z:block} cells needs a 3D-capable sink
  * (bridge {@code WorldCellSink}). Jobs live in one registry:
  * {@link #jobs()} in owned-first order, {@link #job} by id — adding a job
@@ -47,15 +52,21 @@ public final class ExamplePack implements ConfigurablePack {
     static final String STRUCTURE_FILES_KEY = "structureFiles";
     static final String STRUCTURE_ROOT_KEY = "structureRoot";
     static final String BLOCK_ALIAS_PREFIX = "block.";
+    static final String VEIN_KEY = "veinFile";
+    static final String VEIN_FILES_KEY = "veinFiles";
+    static final String VEIN_ROOT_KEY = "veinRoot";
+    static final String VEIN_BLOCK_PREFIX = "veinblock.";
 
     private int ownedCount;
     private int scatterCount;
     private List<StructurePlaceJob> structures;
+    private VeinPlaceJob vein;
     private boolean configured;
 
     /** No-arg for the reflective loader; {@link #configure} must follow. */
     public ExamplePack() {
         this.structures = Collections.<StructurePlaceJob>emptyList();
+        this.vein = null;
         this.configured = false;
     }
 
@@ -90,7 +101,22 @@ public final class ExamplePack implements ConfigurablePack {
         this.scatterCount =
                 OwnedVeinJob.countOf(Integer.valueOf(scatterCount));
         this.structures = checked(structures);
+        this.vein = null;
         this.configured = true;
+    }
+
+    /**
+     * Wired pack with a vein (fourth job, decided after structures).
+     * No null-means-absent: callers wanting no vein use the 3-arg
+     * overload instead of passing null here.
+     */
+    public ExamplePack(int ownedCount, int scatterCount,
+            List<StructurePlaceJob> structures, VeinPlaceJob vein) {
+        this(ownedCount, scatterCount, structures);
+        if (vein == null) {
+            throw new NullPointerException("E_EXAMPLE_VEIN:null job");
+        }
+        this.vein = vein;
     }
 
     private static List<StructurePlaceJob> checked(
@@ -144,15 +170,35 @@ public final class ExamplePack implements ConfigurablePack {
             if (structurePath != null) {
                 structPaths.add(structurePath);
             }
-            structPaths.addAll(splitPaths(extraPaths));
+            structPaths.addAll(splitPaths(extraPaths, STRUCTURE_FILES_KEY));
             String root = structureRoot != null ? structureRoot
                     : StructurePlaceJob.HUT.toString();
             ready = fromFiles(owned, scatter, structPaths, root,
-                    blockAliases(args));
+                    prefixedArgs(args, BLOCK_ALIAS_PREFIX));
+        }
+        String veinPath = args.get(VEIN_KEY);
+        String veinExtra = args.get(VEIN_FILES_KEY);
+        String veinRoot = args.get(VEIN_ROOT_KEY);
+        if (veinPath == null && veinExtra == null) {
+            if (veinRoot != null) {
+                throw new IllegalArgumentException(
+                        "E_EXAMPLE_CONTENT:veinRoot without vein file(s)");
+            }
+        } else {
+            List<String> veinPaths = new ArrayList<String>();
+            if (veinPath != null) {
+                veinPaths.add(veinPath);
+            }
+            veinPaths.addAll(splitPaths(veinExtra, VEIN_FILES_KEY));
+            String root = veinRoot != null ? veinRoot
+                    : VeinPlaceJob.ORE.toString();
+            ready = fromFiles(ready, VeinPlaceJob.fromFiles(veinPaths,
+                    root, prefixedArgs(args, VEIN_BLOCK_PREFIX)));
         }
         this.ownedCount = ready.ownedCount;
         this.scatterCount = ready.scatterCount;
         this.structures = ready.structures;
+        this.vein = ready.vein;
         this.configured = true;
     }
 
@@ -256,8 +302,25 @@ public final class ExamplePack implements ConfigurablePack {
                 structures);
     }
 
+    /**
+     * Adds an already-wired vein to a wired pack (wired separately via
+     * {@link VeinPlaceJob#fromFiles}, so its alias coverage stays
+     * strict). The vein decides after every other job.
+     */
+    public static ExamplePack fromFiles(ExamplePack pack,
+            VeinPlaceJob vein) {
+        if (pack == null) {
+            throw new NullPointerException("E_EXAMPLE_PACK:null pack");
+        }
+        if (vein == null) {
+            throw new NullPointerException("E_EXAMPLE_VEIN:null job");
+        }
+        return new ExamplePack(pack.ownedCount, pack.scatterCount,
+                pack.structures, vein);
+    }
+
     /** Comma-separated path list; blank entries fail loudly, never skipped. */
-    static List<String> splitPaths(String raw) {
+    static List<String> splitPaths(String raw, String key) {
         List<String> out = new ArrayList<String>();
         if (raw == null) {
             return out;
@@ -266,7 +329,7 @@ public final class ExamplePack implements ConfigurablePack {
             String path = token.trim();
             if (path.isEmpty()) {
                 throw new IllegalArgumentException(
-                        "E_EXAMPLE_CONTENT:bad structureFiles <" + raw
+                        "E_EXAMPLE_CONTENT:bad " + key + " <" + raw
                                 + "> (blank entry)");
             }
             out.add(path);
@@ -274,14 +337,19 @@ public final class ExamplePack implements ConfigurablePack {
         return out;
     }
 
-    /** Operator {@code block.<ref>} args, prefix stripped, order kept. */
-    static Map<String, String> blockAliases(Map<String, String> args) {
+    /**
+     * Operator {@code <prefix><ref>} args, prefix stripped, order kept.
+     * One derivation point for both alias families ({@code block.} for
+     * structure palettes, {@code veinblock.} for the vein block) — a
+     * second prefix is one call, never a copied loop.
+     */
+    static Map<String, String> prefixedArgs(Map<String, String> args,
+            String prefix) {
         Map<String, String> aliases = new LinkedHashMap<String, String>();
         for (Map.Entry<String, String> e : args.entrySet()) {
-            if (e.getKey() != null
-                    && e.getKey().startsWith(BLOCK_ALIAS_PREFIX)) {
-                aliases.put(e.getKey().substring(
-                        BLOCK_ALIAS_PREFIX.length()), e.getValue());
+            if (e.getKey() != null && e.getKey().startsWith(prefix)) {
+                aliases.put(e.getKey().substring(prefix.length()),
+                        e.getValue());
             }
         }
         return aliases;
@@ -346,7 +414,20 @@ public final class ExamplePack implements ConfigurablePack {
         for (StructurePlaceJob job : structures) {
             states.put(job.id(), Long.valueOf(job.contentCount()));
         }
+        if (vein != null) {
+            states.put(vein.id(), Long.valueOf(vein.contentCount()));
+            states.put(vein.sizeId(), sizeState(vein.size()));
+        }
         return Collections.unmodifiableMap(states);
+    }
+
+    /** Seals wired extents as the snapshot size vector (Long trio). */
+    private static List<Long> sizeState(int[] size) {
+        List<Long> out = new ArrayList<Long>(size.length);
+        for (int c : size) {
+            out.add(Long.valueOf(c));
+        }
+        return out;
     }
 
     public List<MatouJob<List<String>>> jobs() {
@@ -355,13 +436,16 @@ public final class ExamplePack implements ConfigurablePack {
         jobs.add(new OwnedVeinJob());
         jobs.add(new AdditiveScatterJob());
         jobs.addAll(structures);
+        if (vein != null) {
+            jobs.add(vein);
+        }
         return Collections.unmodifiableList(jobs);
     }
 
     /**
      * Registry lookup by id: owned and additive jobs resolve to fresh
-     * equivalents (they are stateless), structures to the wired instance.
-     * Unknown ids are refused loudly — callers never index
+     * equivalents (they are stateless), structures and the vein to the
+     * wired instance. Unknown ids are refused loudly — callers never index
      * {@link #jobs()} positionally.
      */
     public MatouJob<List<String>> job(MatouId id) {
@@ -379,7 +463,15 @@ public final class ExamplePack implements ConfigurablePack {
                 return job;
             }
         }
+        if (vein != null && id.equals(vein.id())) {
+            return vein;
+        }
         throw new IllegalArgumentException(
                 "E_EXAMPLE_JOB:unknown <" + id + ">");
+    }
+
+    /** True once a vein file was wired (legacy packs stay vein-free). */
+    public boolean hasVein() {
+        return vein != null;
     }
 }

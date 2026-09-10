@@ -895,6 +895,320 @@ public final class ExampleCheck {
                     Float.POSITIVE_INFINITY, true);
         }, "blockspec infinite hardness");
 
+        // --- vein job: seeded clusters, snapshot-sealed size, named refusals ---
+        final VeinPlaceJob oreVein = VeinPlaceJob.fromFile(
+                "content/vein.matou", "ore_vein");
+        check(oreVein.id().equals(VeinPlaceJob.ORE), "vein id");
+        check(oreVein.id().equals(
+                MatouId.of("example1.veins", "ore_vein")), "vein ns");
+        check(oreVein.sizeId().equals(
+                MatouId.of("example1.veins", "ore_vein_size")),
+                "vein size id");
+        check(oreVein.contentCount() == 2, "vein content count 2");
+        check(Arrays.equals(oreVein.size(), new int[]{3, 2, 3}),
+                "vein size");
+        check(oreVein.seed() == 7, "vein seed");
+        check(oreVein.block().equals("example1.content:my_ore"),
+                "vein block identity");
+        final List<Long> veinSize = Arrays.asList(Long.valueOf(3L),
+                Long.valueOf(2L), Long.valueOf(3L));
+        Map<MatouId, Object> veinStates = new HashMap<MatouId, Object>();
+        veinStates.put(VeinPlaceJob.ORE, Long.valueOf(2L));
+        veinStates.put(oreVein.sizeId(), veinSize);
+        List<String> v1 = oreVein.decide(new Snapshot(7L, veinStates));
+        check(v1.equals(oreVein.decide(new Snapshot(7L, veinStates))),
+                "vein pure");
+        check(v1.size() == 2 * 3 * 2 * 3, "vein count*volume 36");
+        boolean vshaped = true;
+        boolean vband = true;
+        for (String cell : v1) {
+            vshaped &= cell.matches(
+                    "[0-9]+,[0-9]+,[0-9]+:example1\\.content:my_ore");
+            int y = Integer.parseInt(
+                    cell.split(":")[0].split(",")[1]);
+            vband &= (y == 60 || y == 61);
+        }
+        check(vshaped, "vein cells shaped");
+        check(vband, "vein y band 60..61");
+        check(!oreVein.decide(new Snapshot(8L, veinStates)).equals(v1),
+                "vein tick addressed");
+        final VeinPlaceJob ore9 = new VeinPlaceJob(VeinPlaceJob.ORE,
+                "example1.content:my_ore", new int[]{3, 2, 3}, 9, 2);
+        check(!ore9.decide(new Snapshot(7L, veinStates)).equals(v1),
+                "vein seed addressed");
+        try {
+            v1.add("0,60,0:example1.content:my_ore");
+            check(false, "vein decision immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : vein decision immutable");
+        }
+        expectNullRefused(() -> {
+            oreVein.decide(null);
+        }, "vein null snapshot");
+        expectRefused(() -> {
+            oreVein.decide(new Snapshot(7L,
+                    new HashMap<MatouId, Object>()));
+        }, "vein missing count");
+        expectRefused(() -> {
+            Map<MatouId, Object> states =
+                    new HashMap<MatouId, Object>();
+            states.put(VeinPlaceJob.ORE, "two");
+            states.put(oreVein.sizeId(), veinSize);
+            oreVein.decide(new Snapshot(7L, states));
+        }, "vein bad count type");
+        expectRefused(() -> {
+            Map<MatouId, Object> states =
+                    new HashMap<MatouId, Object>();
+            states.put(VeinPlaceJob.ORE, Long.valueOf(0L));
+            states.put(oreVein.sizeId(), veinSize);
+            oreVein.decide(new Snapshot(7L, states));
+        }, "vein count 0");
+        final List<Long> flatSize = Arrays.asList(Long.valueOf(3L),
+                Long.valueOf(0L), Long.valueOf(3L));
+        checkRefused(new Refusal[]{
+            new Refusal(() -> {
+                Map<MatouId, Object> states =
+                        new HashMap<MatouId, Object>();
+                states.put(VeinPlaceJob.ORE, Long.valueOf(2L));
+                oreVein.decide(new Snapshot(7L, states));
+            }, "vein missing size"),
+            new Refusal(() -> {
+                Map<MatouId, Object> states =
+                        new HashMap<MatouId, Object>();
+                states.put(VeinPlaceJob.ORE, Long.valueOf(2L));
+                states.put(oreVein.sizeId(), "3,2,3");
+                oreVein.decide(new Snapshot(7L, states));
+            }, "vein bad size type"),
+            new Refusal(() -> {
+                Map<MatouId, Object> states =
+                        new HashMap<MatouId, Object>();
+                states.put(VeinPlaceJob.ORE, Long.valueOf(2L));
+                states.put(oreVein.sizeId(), Arrays.asList(
+                        Long.valueOf(3L), Long.valueOf(2L)));
+                oreVein.decide(new Snapshot(7L, states));
+            }, "vein bad size shape"),
+            new Refusal(() -> {
+                Map<MatouId, Object> states =
+                        new HashMap<MatouId, Object>();
+                states.put(VeinPlaceJob.ORE, Long.valueOf(2L));
+                states.put(oreVein.sizeId(), flatSize);
+                oreVein.decide(new Snapshot(7L, states));
+            }, "vein size 0"),
+            new Refusal(() -> {
+                new VeinPlaceJob(VeinPlaceJob.ORE,
+                        "example1.content:my_ore",
+                        new int[]{0, 2, 3}, 7, 2);
+            }, "vein ctor size 0"),
+            new Refusal(() -> {
+                new VeinPlaceJob(VeinPlaceJob.ORE,
+                        "example1.content:my_ore",
+                        new int[]{3, -1, 3}, 7, 2);
+            }, "vein ctor size negative"),
+            new Refusal(() -> {
+                new VeinPlaceJob(VeinPlaceJob.ORE,
+                        "example1.content:my_ore",
+                        new int[]{3, 2}, 7, 2);
+            }, "vein ctor size shape"),
+            new Refusal(() -> {
+                new VeinPlaceJob(VeinPlaceJob.ORE, "",
+                        new int[]{3, 2, 3}, 7, 2);
+            }, "vein ctor empty block"),
+            new Refusal(() -> {
+                new VeinPlaceJob(VeinPlaceJob.ORE,
+                        "example1.content:my_ore",
+                        new int[]{3, 2, 3}, 7, 0);
+            }, "vein ctor count 0"),
+        });
+        checkNullRefused(new Refusal[]{
+            new Refusal(() -> {
+                new VeinPlaceJob(null, "example1.content:my_ore",
+                        new int[]{3, 2, 3}, 7, 2);
+            }, "vein ctor null id"),
+            new Refusal(() -> {
+                new VeinPlaceJob(VeinPlaceJob.ORE,
+                        "example1.content:my_ore", null, 7, 2);
+            }, "vein ctor null size"),
+        });
+        // --- vein wiring: aliases strict both ways, file-set strict ---
+        Map<String, String> oreAlias = new HashMap<String, String>();
+        oreAlias.put("example1.content:my_ore", "example1:my_ore");
+        final VeinPlaceJob aliasedOre = VeinPlaceJob.fromFile(
+                "content/vein.matou", "ore_vein", oreAlias);
+        check(aliasedOre.block().equals("example1:my_ore"),
+                "vein alias block");
+        List<String> acab = aliasedOre.decide(
+                new Snapshot(7L, veinStates));
+        check(acab.size() == 36, "vein alias decides 36");
+        boolean aliasOre = true;
+        for (String cell : acab) {
+            aliasOre &= cell.endsWith(":example1:my_ore");
+        }
+        check(aliasOre, "vein alias all ore");
+        Map<String, String> oreBoth = new HashMap<String, String>(oreAlias);
+        oreBoth.put("bogus:thing", "minecraft:dirt");
+        checkRefused(new Refusal[]{
+            new Refusal(() -> {
+                Map<String, String> wrong = new HashMap<String, String>();
+                wrong.put("other:ref", "example1:my_ore");
+                VeinPlaceJob.fromFile(
+                        "content/vein.matou", "ore_vein", wrong);
+            }, "vein alias unmapped block"),
+            new Refusal(() -> {
+                VeinPlaceJob.fromFile(
+                        "content/vein.matou", "ore_vein", oreBoth);
+            }, "vein alias unknown key"),
+            new Refusal(() -> {
+                Map<String, String> bad = new HashMap<String, String>();
+                bad.put("example1.content:my_ore", "my_ore");
+                VeinPlaceJob.fromFile(
+                        "content/vein.matou", "ore_vein", bad);
+            }, "vein alias bad value"),
+            new Refusal(() -> {
+                VeinPlaceJob.fromFile(
+                        "content/vein.matou", "nope", oreAlias);
+            }, "vein missing name"),
+            new Refusal(() -> {
+                VeinPlaceJob.fromFile(
+                        "content/nope.matou", "ore_vein", oreAlias);
+            }, "vein bad path"),
+            new Refusal(() -> {
+                VeinPlaceJob.fromFiles(
+                        Collections.singletonList("content/vein.matou"),
+                        "example1.veins:nope", oreAlias);
+            }, "vein missing root"),
+            new Refusal(() -> {
+                VeinPlaceJob.fromFiles(
+                        Collections.singletonList("content/vein.matou"),
+                        "other.ns:ore_vein", oreAlias);
+            }, "vein unknown namespace"),
+            new Refusal(() -> {
+                VeinPlaceJob.fromFiles(Arrays.asList(
+                        "content/vein.matou", "content/vein.matou"),
+                        "example1.veins:ore_vein", oreAlias);
+            }, "vein duplicate namespace"),
+            new Refusal(() -> {
+                VeinPlaceJob.fromFiles(
+                        Collections.<String>emptyList(),
+                        "example1.veins:ore_vein", oreAlias);
+            }, "vein no files"),
+            new Refusal(() -> {
+                VeinPlaceJob.fromFiles(
+                        Collections.singletonList("content/vein.matou"),
+                        "ore_vein", oreAlias);
+            }, "vein bare root"),
+        });
+        checkNullRefused(new Refusal[]{
+            new Refusal(() -> {
+                VeinPlaceJob.fromFile(null, "ore_vein", oreAlias);
+            }, "vein null path"),
+            new Refusal(() -> {
+                VeinPlaceJob.fromFile(
+                        "content/vein.matou", "ore_vein", null);
+            }, "vein null aliases"),
+            new Refusal(() -> {
+                VeinPlaceJob.fromFiles(null,
+                        "example1.veins:ore_vein", oreAlias);
+            }, "vein null files"),
+            new Refusal(() -> {
+                VeinPlaceJob.fromFiles(
+                        Collections.singletonList("content/vein.matou"),
+                        null, oreAlias);
+            }, "vein null root"),
+        });
+        final VeinPlaceJob crossOre = VeinPlaceJob.fromFiles(
+                Collections.singletonList("content/vein.matou"),
+                "example1.veins:ore_vein", oreAlias);
+        check(crossOre.decide(new Snapshot(7L, veinStates)).equals(acab),
+                "vein files wires like file");
+        // --- vein pack: fourth job, seal-vs-wire comparateur tick by tick ---
+        check(!wired.hasVein() && !pack.hasVein(), "legacy packs vein-free");
+        final ExamplePack veinPack = ExamplePack.fromFiles(
+                wired, aliasedOre);
+        check(veinPack.hasVein(), "vein pack has vein");
+        Map<MatouId, Object> veinPackStates = veinPack.states(7L);
+        check(veinPackStates.size() == 5, "vein pack 5 states");
+        check(veinPackStates.get(VeinPlaceJob.ORE)
+                .equals(Long.valueOf(2L)), "vein pack count 2");
+        check(veinPackStates.get(aliasedOre.sizeId()).equals(veinSize),
+                "vein pack seals size");
+        check(veinPack.jobs().size() == 4, "vein pack 4 jobs");
+        check(veinPack.jobs().get(3) instanceof VeinPlaceJob,
+                "vein fourth is vein");
+        check(veinPack.job(VeinPlaceJob.ORE) instanceof VeinPlaceJob,
+                "vein registry resolves");
+        Snapshot veinSnap = new Snapshot(7L, veinPackStates);
+        check(veinPack.job(VeinPlaceJob.ORE).decide(veinSnap).size() == 36,
+                "vein registry decides 36");
+        boolean sealSame = true;
+        for (long t = 0L; t < 40L; t++) {
+            Map<MatouId, Object> hand = new HashMap<MatouId, Object>();
+            hand.put(OwnedVeinJob.VEIN, Long.valueOf(8L));
+            hand.put(AdditiveScatterJob.SCATTER, Long.valueOf(4L));
+            hand.put(StructurePlaceJob.HUT, Long.valueOf(2L));
+            hand.put(VeinPlaceJob.ORE, Long.valueOf(2L));
+            hand.put(aliasedOre.sizeId(), veinSize);
+            sealSame &= aliasedOre.decide(new Snapshot(t,
+                    veinPack.states(t))).equals(
+                    aliasedOre.decide(new Snapshot(t, hand)));
+        }
+        check(sealSame, "vein seal comparateur 40 ticks");
+        Map<MatouId, Object> tampered = new HashMap<MatouId, Object>(
+                veinPack.states(7L));
+        tampered.put(aliasedOre.sizeId(), Arrays.asList(
+                Long.valueOf(2L), Long.valueOf(2L), Long.valueOf(2L)));
+        check(!aliasedOre.decide(new Snapshot(7L, tampered)).equals(
+                aliasedOre.decide(veinSnap)), "vein size state is live");
+        expectRefused(() -> {
+            veinPack.job(MatouId.of("example1", "nope"));
+        }, "vein pack registry unknown job");
+        checkNullRefused(new Refusal[]{
+            new Refusal(() -> {
+                ExamplePack.fromFiles(wired, null);
+            }, "vein pack null job"),
+            new Refusal(() -> {
+                ExamplePack.fromFiles(null, aliasedOre);
+            }, "vein pack null pack"),
+            new Refusal(() -> {
+                new ExamplePack(8, 4,
+                        Collections.singletonList(hutJob), null);
+            }, "vein pack null vein ctor"),
+        });
+        // --- vein pack via operator keys: veinFile + veinblock alias ---
+        Map<String, String> cfgV = new HashMap<String, String>();
+        cfgV.put("ownedFile", "content/owned.matou");
+        cfgV.put("scatterFile", "content/additive.matou");
+        cfgV.put("structureFile", "content/structure.matou");
+        cfgV.put("veinFile", "content/vein.matou");
+        cfgV.put("block.example1.structures:hut_wall", "minecraft:stone");
+        cfgV.put("block.example1.structures:hut_roof", "minecraft:stone");
+        cfgV.put("veinblock.example1.content:my_ore", "example1:my_ore");
+        ExamplePack viaVein = new ExamplePack();
+        viaVein.configure(cfgV);
+        check(viaVein.hasVein(), "vein configure wires");
+        check(viaVein.jobs().size() == 4, "vein configure 4 jobs");
+        check(viaVein.states(7L).equals(veinPack.states(7L)),
+                "vein configure seals like direct");
+        List<String> vdecided = viaVein.job(VeinPlaceJob.ORE).decide(
+                new Snapshot(7L, viaVein.states(7L)));
+        check(vdecided.size() == 36, "vein configure decides 36");
+        boolean vore = true;
+        for (String cell : vdecided) {
+            vore &= cell.endsWith(":example1:my_ore");
+        }
+        check(vore, "vein configure all ore");
+        expectRefused(() -> {
+            Map<String, String> op = new HashMap<String, String>(cfgV);
+            op.remove("veinFile");
+            op.put("veinRoot", "example1.veins:ore_vein");
+            new ExamplePack().configure(op);
+        }, "vein root without files");
+        expectRefused(() -> {
+            Map<String, String> op = new HashMap<String, String>(cfgV);
+            op.put("veinFiles", "content/vein.matou, ");
+            op.remove("veinFile");
+            new ExamplePack().configure(op);
+        }, "vein blank veinFiles entry");
+
         System.out.println("ok example1 : all");
     }
 }

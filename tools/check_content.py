@@ -25,6 +25,7 @@ WANT_ADDITIVE = [("Feature", 1)]
 WANT_STRUCTURE = [("Block", 2), ("Structure", 2)]
 WANT_BADPARTS = [("Block", 1), ("Structure", 3)]
 WANT_CROSS = [("Block", 1), ("Structure", 1)]
+WANT_VEIN = [("Vein", 1)]
 
 
 def run(cmd, path):
@@ -61,7 +62,8 @@ def main():
         want = {"additive.matou": WANT_ADDITIVE,
                 "structure.matou": WANT_STRUCTURE,
                 "structure_cross.matou": WANT_CROSS,
-                "structure_badparts.matou": WANT_BADPARTS}.get(
+                "structure_badparts.matou": WANT_BADPARTS,
+                "vein.matou": WANT_VEIN}.get(
                         name, WANT_OWNED)
         bad_shape = sorted(decls) != sorted(
             [d for d, n in want for _ in range(n)])

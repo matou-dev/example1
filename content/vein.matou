@@ -1,0 +1,16 @@
+syntax 4
+namespace example1.veins
+
+from example1.content use my_ore
+
+genre Vein : Data
+field block : block_ref
+field count : u32
+field size : vec3
+field seed : i32
+
+vein ore_vein
+  block = example1.content:my_ore
+  count = 2
+  size = 3, 2, 3
+  seed = 7

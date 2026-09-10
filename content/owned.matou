@@ -12,6 +12,11 @@ field label : string
 genre Mob : Data
 field hp : u32
 field drop : item_ref
+field cap : u32
+field budget : u32
+field y_min : u32
+field y_max : u32
+field drop_count : u32
 
 genre Feature : Data
 field block : block_ref
@@ -28,6 +33,11 @@ item my_gem
 mob my_beast
   hp = 20
   drop = example1.content:my_gem
+  cap = 4
+  budget = 1
+  y_min = 66
+  y_max = 68
+  drop_count = 1
 
 feature my_vein
   block = example1.content:my_ore

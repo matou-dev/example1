@@ -119,7 +119,9 @@ public final class ExampleCheck {
                 + "genre Item : Data\nfield stack : u32\n"
                 + "field label : string\n\n"
                 + "genre Mob : Data\nfield hp : u32\n"
-                + "field drop : item_ref\n\n"
+                + "field drop : item_ref\nfield cap : u32\n"
+                + "field budget : u32\nfield y_min : u32\n"
+                + "field y_max : u32\nfield drop_count : u32\n\n"
                 + "item my_gem\n  stack = 64\n  label = \"shiny\"\n\n"
                 + stanza;
         try {
@@ -132,6 +134,14 @@ public final class ExampleCheck {
             throw new RuntimeException("tmpLoot: " + e.getMessage(), e);
         }
     }
+
+    /**
+     * Authorial spawn/loot policy fragment every passing mob stanza
+     * carries (mirrors {@code content/owned.matou} values — the gate
+     * proves content-decided numbers, never bridge constants).
+     */
+    private static final String MOB_POLICY = "  cap = 4\n  budget = 1\n"
+            + "  y_min = 66\n  y_max = 68\n  drop_count = 1\n";
 
     public static void main(String[] args) {
         // --- ids live in the frozen example1 namespaces ---
@@ -1250,6 +1260,7 @@ public final class ExampleCheck {
                 table.drops().get(LootJob.ORE)), "loot ore pays gem");
         check("example1.content:my_gem".equals(
                 table.drops().get(LootJob.BEAST)), "loot beast pays gem");
+        check(table.count() == 1L, "loot table wires authorial count");
         try {
             table.drops().put("ore", "example1.content:nope");
             check(false, "loot table immutable");
@@ -1257,18 +1268,36 @@ public final class ExampleCheck {
             System.out.println("ok example1 : loot table immutable");
         }
         final String oneMob = tmpLoot("mob my_beast\n  hp = 20\n"
-                + "  drop = example1.content:my_gem\n");
+                + "  drop = example1.content:my_gem\n" + MOB_POLICY);
         check(LootTable.fromFile(oneMob).drops().equals(table.drops()),
                 "loot table wires like owned");
+        check(LootTable.fromFile(oneMob).count() == table.count(),
+                "loot table wires count like owned");
         expectRefused(() -> {
             LootTable.fromFile(tmpLoot(""));
         }, "loot table empty mob");
         expectRefused(() -> {
             LootTable.fromFile(tmpLoot("mob a\n  hp = 1\n"
-                    + "  drop = example1.content:my_gem\n"
+                    + "  drop = example1.content:my_gem\n" + MOB_POLICY
                     + "mob b\n  hp = 2\n"
-                    + "  drop = example1.content:my_gem\n"));
+                    + "  drop = example1.content:my_gem\n" + MOB_POLICY));
         }, "loot table multi mob");
+        expectRefused(() -> {
+            LootTable.fromFile(tmpLoot("mob nodrop\n  hp = 1\n"
+                    + MOB_POLICY));
+        }, "loot table missing drop");
+        expectRefused(() -> {
+            LootTable.fromFile(tmpLoot("mob nocount\n  hp = 1\n"
+                    + "  drop = example1.content:my_gem\n"
+                    + "  cap = 4\n  budget = 1\n"
+                    + "  y_min = 66\n  y_max = 68\n"));
+        }, "loot table missing drop_count");
+        expectRefused(() -> {
+            LootTable.fromFile(tmpLoot("mob flatcount\n  hp = 1\n"
+                    + "  drop = example1.content:my_gem\n"
+                    + "  cap = 4\n  budget = 1\n"
+                    + "  y_min = 66\n  y_max = 68\n  drop_count = 0\n"));
+        }, "loot table zero drop_count");
         expectRefused(() -> {
             LootTable.fromFile("content/no-such.matou");
         }, "loot table missing file");
@@ -1389,29 +1418,62 @@ public final class ExampleCheck {
         check("example1.content:my_beast".equals(table.mob()),
                 "spawn table wires beast");
         check(table.hp() == 20L, "spawn table wires beast hp");
+        check(table.cap() == 4L, "spawn table wires authorial cap");
+        check(table.budget() == 1L, "spawn table wires authorial budget");
+        check(table.yMin() == 66L && table.yMax() == 68L,
+                "spawn table wires authorial y band");
         final String oneMob = tmpLoot("mob my_beast\n  hp = 20\n"
-                + "  drop = example1.content:my_gem\n");
+                + "  drop = example1.content:my_gem\n" + MOB_POLICY);
         check(SpawnTable.fromFile(oneMob).mob().equals(table.mob()),
                 "spawn table wires like owned");
         check(SpawnTable.fromFile(oneMob).hp() == 20L,
                 "spawn table wires hp like owned");
+        check(SpawnTable.fromFile(oneMob).cap() == table.cap()
+                && SpawnTable.fromFile(oneMob).budget() == table.budget()
+                && SpawnTable.fromFile(oneMob).yMin() == table.yMin()
+                && SpawnTable.fromFile(oneMob).yMax() == table.yMax(),
+                "spawn table wires policy like owned");
         expectRefused(() -> {
             SpawnTable.fromFile(tmpLoot(""));
         }, "spawn table empty mob");
         expectRefused(() -> {
             SpawnTable.fromFile(tmpLoot("mob a\n  hp = 1\n"
-                    + "  drop = example1.content:my_gem\n"
+                    + "  drop = example1.content:my_gem\n" + MOB_POLICY
                     + "mob b\n  hp = 2\n"
-                    + "  drop = example1.content:my_gem\n"));
+                    + "  drop = example1.content:my_gem\n" + MOB_POLICY));
         }, "spawn table multi mob");
         expectRefused(() -> {
             SpawnTable.fromFile(tmpLoot("mob nohp\n"
-                    + "  drop = example1.content:my_gem\n"));
+                    + "  drop = example1.content:my_gem\n" + MOB_POLICY));
         }, "spawn table missing hp");
         expectRefused(() -> {
             SpawnTable.fromFile(tmpLoot("mob flat\n  hp = 0\n"
-                    + "  drop = example1.content:my_gem\n"));
+                    + "  drop = example1.content:my_gem\n" + MOB_POLICY));
         }, "spawn table zero hp");
+        expectRefused(() -> {
+            SpawnTable.fromFile(tmpLoot("mob nocap\n  hp = 1\n"
+                    + "  drop = example1.content:my_gem\n"
+                    + "  budget = 1\n"
+                    + "  y_min = 66\n  y_max = 68\n  drop_count = 1\n"));
+        }, "spawn table missing cap");
+        expectRefused(() -> {
+            SpawnTable.fromFile(tmpLoot("mob flatcap\n  hp = 1\n"
+                    + "  drop = example1.content:my_gem\n"
+                    + "  cap = 0\n  budget = 1\n"
+                    + "  y_min = 66\n  y_max = 68\n  drop_count = 1\n"));
+        }, "spawn table zero cap");
+        expectRefused(() -> {
+            SpawnTable.fromFile(tmpLoot("mob flatbudget\n  hp = 1\n"
+                    + "  drop = example1.content:my_gem\n"
+                    + "  cap = 4\n  budget = 0\n"
+                    + "  y_min = 66\n  y_max = 68\n  drop_count = 1\n"));
+        }, "spawn table zero budget");
+        expectRefused(() -> {
+            SpawnTable.fromFile(tmpLoot("mob flipy\n  hp = 1\n"
+                    + "  drop = example1.content:my_gem\n"
+                    + "  cap = 4\n  budget = 1\n"
+                    + "  y_min = 68\n  y_max = 66\n  drop_count = 1\n"));
+        }, "spawn table inverted y");
         expectRefused(() -> {
             SpawnTable.fromFile("content/no-such.matou");
         }, "spawn table missing file");

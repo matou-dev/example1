@@ -13,16 +13,21 @@ import java.util.Map;
  * table has exactly two entries: {@code ore} and {@code beast} both pay
  * the content's single mob drop (hub decisions/LOOT.md single-table
  * scope — the vein block tells <i>where</i> ore lives, the mob drop tells
- * <i>what</i> everything pays, no fifth genre, no new fields). A content
- * with zero or several mobs refuses loudly: picking a payer silently
- * would be a default, and per-mob tables are a documented re-opener, not
- * a quiet guess. Pure, Java 8, zero deps beyond matou-spi.
+ * <i>what</i> everything pays, no fifth genre, no new fields), plus the
+ * authorial items-per-harvest {@code count} from the mob's
+ * {@code drop_count} — the bridge transports it into the seal, it never
+ * owns the number (content-decides tranche). A content with zero or
+ * several mobs refuses loudly: picking a payer silently would be a
+ * default, and per-mob tables are a documented re-opener, not a quiet
+ * guess. Pure, Java 8, zero deps beyond matou-spi.
  */
 public final class LootTable {
     private final Map<String, String> drops;
+    private final long count;
 
-    private LootTable(Map<String, String> drops) {
+    private LootTable(Map<String, String> drops, long count) {
         this.drops = drops;
+        this.count = count;
     }
 
     /** Kind to content item ref ({@code ore} + {@code beast}), never null. */
@@ -30,10 +35,16 @@ public final class LootTable {
         return drops;
     }
 
+    /** Authorial items per harvest (positive), never defaulted. */
+    public long count() {
+        return count;
+    }
+
     /**
-     * Parses the owned content file once and seals the two-entry table.
-     * Loud on unreadable / unparsable / zero or several mobs / missing or
-     * bad drop — never defaulted.
+     * Parses the owned content file once and seals the two-entry table
+     * plus the authorial count. Loud on unreadable / unparsable / zero or
+     * several mobs / missing or bad drop / missing or non-positive
+     * drop_count — never defaulted.
      */
     @SuppressWarnings("unchecked")
     public static LootTable fromFile(String path) {
@@ -55,6 +66,7 @@ public final class LootTable {
         }
         String payer = null;
         String payerMob = null;
+        long payerCount = -1L;
         for (Object o : (List<Object>) instances) {
             if (!(o instanceof Map)) {
                 throw new IllegalArgumentException(
@@ -79,6 +91,15 @@ public final class LootTable {
                         "E_EXAMPLE_LOOT:bad drop <" + rawName + "> in <"
                                 + path + ">");
             }
+            Object dropCount =
+                    ((Map<String, Object>) fields).get("drop_count");
+            if (!(dropCount instanceof Number)
+                    || ((Number) dropCount).longValue() <= 0L) {
+                throw new IllegalArgumentException(
+                        "E_EXAMPLE_LOOT:bad drop_count <" + rawName
+                                + "> in <" + path + "> (positive u32, "
+                                + "never defaulted)");
+            }
             if (payer != null) {
                 throw new IllegalArgumentException(
                         "E_EXAMPLE_LOOT:multi <" + payerMob + ","
@@ -88,6 +109,7 @@ public final class LootTable {
             }
             payer = (String) drop;
             payerMob = (String) rawName;
+            payerCount = ((Number) dropCount).longValue();
         }
         if (payer == null) {
             throw new IllegalArgumentException(
@@ -97,6 +119,7 @@ public final class LootTable {
         Map<String, String> drops = new LinkedHashMap<String, String>();
         drops.put(LootJob.ORE, payer);
         drops.put(LootJob.BEAST, payer);
-        return new LootTable(Collections.unmodifiableMap(drops));
+        return new LootTable(Collections.unmodifiableMap(drops),
+                payerCount);
     }
 }

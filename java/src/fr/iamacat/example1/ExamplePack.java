@@ -5,9 +5,9 @@ import fr.iamacat.spi.LootStates;
 import fr.iamacat.spi.MatouId;
 import fr.iamacat.spi.MatouJob;
 import fr.iamacat.spi.MatouParse;
+import fr.iamacat.spi.PolicyPack;
 import fr.iamacat.spi.SpawnStates;
 import fr.iamacat.spi.StateVocabulary;
-import fr.iamacat.spi.VocabularyPack;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -49,7 +49,7 @@ import java.util.Set;
  * extends the registry, never the factory overloads.
  */
 public final class ExamplePack implements ConfigurablePack,
-        VocabularyPack {
+        PolicyPack {
     public static final String NAMESPACE = ExampleIds.NAMESPACE;
     static final String OWNED_KEY = "ownedFile";
     static final String SCATTER_KEY = "scatterFile";
@@ -66,12 +66,16 @@ public final class ExamplePack implements ConfigurablePack,
     private int scatterCount;
     private List<StructurePlaceJob> structures;
     private VeinPlaceJob vein;
+    private LootTable loot;
+    private SpawnTable spawn;
     private boolean configured;
 
     /** No-arg for the reflective loader; {@link #configure} must follow. */
     public ExamplePack() {
         this.structures = Collections.<StructurePlaceJob>emptyList();
         this.vein = null;
+        this.loot = null;
+        this.spawn = null;
         this.configured = false;
     }
 
@@ -107,6 +111,8 @@ public final class ExamplePack implements ConfigurablePack,
                 OwnedVeinJob.countOf(Integer.valueOf(scatterCount));
         this.structures = checked(structures);
         this.vein = null;
+        this.loot = null;
+        this.spawn = null;
         this.configured = true;
     }
 
@@ -204,14 +210,20 @@ public final class ExamplePack implements ConfigurablePack,
         this.scatterCount = ready.scatterCount;
         this.structures = ready.structures;
         this.vein = ready.vein;
+        this.loot = ready.loot;
+        this.spawn = ready.spawn;
         this.configured = true;
     }
 
     /**
-     * Parses both content files once through the SPI reference parser.
-     * Loud on unreadable / unparsable / missing feature — never defaulted.
-     * Legacy 2-job pack: no structure wired.
-     */
+      * Wires both content files through the SPI reference parser at wire
+      * time (counts plus the T4 loot/spawn policy from the owned file —
+      * never on the tick path). Loud on unreadable / unparsable / missing
+      * feature — never defaulted. Legacy 2-job pack: no structure wired.
+      * The owned file also seals the T4 loot/spawn policy (single mob
+      * funds both tables — the tables' own multi/empty refusals propagate
+      * untouched).
+      */
     public static ExamplePack fromFiles(String ownedPath,
             String scatterPath) {
         if (ownedPath == null) {
@@ -222,10 +234,13 @@ public final class ExamplePack implements ConfigurablePack,
             throw new NullPointerException(
                     "E_EXAMPLE_CONTENT:null scatter path");
         }
-        return new ExamplePack(
+        ExamplePack pack = new ExamplePack(
                 featureCount(parse(ownedPath), "my_vein", ownedPath),
                 featureCount(parse(scatterPath), "scatter_additive",
                         scatterPath));
+        pack.loot = LootTable.fromFile(ownedPath);
+        pack.spawn = SpawnTable.fromFile(ownedPath);
+        return pack;
     }
 
     /**
@@ -308,10 +323,11 @@ public final class ExamplePack implements ConfigurablePack,
     }
 
     /**
-     * Adds an already-wired vein to a wired pack (wired separately via
-     * {@link VeinPlaceJob#fromFiles}, so its alias coverage stays
-     * strict). The vein decides after every other job.
-     */
+      * Adds an already-wired vein to a wired pack (wired separately via
+      * {@link VeinPlaceJob#fromFiles}, so its alias coverage stays
+      * strict). The vein decides after every other job. The T4 policy
+      * rides along (vein files never fund tables).
+      */
     public static ExamplePack fromFiles(ExamplePack pack,
             VeinPlaceJob vein) {
         if (pack == null) {
@@ -320,8 +336,11 @@ public final class ExamplePack implements ConfigurablePack,
         if (vein == null) {
             throw new NullPointerException("E_EXAMPLE_VEIN:null job");
         }
-        return new ExamplePack(pack.ownedCount, pack.scatterCount,
-                pack.structures, vein);
+        ExamplePack out = new ExamplePack(pack.ownedCount,
+                pack.scatterCount, pack.structures, vein);
+        out.loot = pack.loot;
+        out.spawn = pack.spawn;
+        return out;
     }
 
     /** Comma-separated path list; blank entries fail loudly, never skipped. */
@@ -501,5 +520,81 @@ public final class ExamplePack implements ConfigurablePack,
         }
         throw new IllegalArgumentException("E_EXAMPLE_VOCAB:unknown <"
                 + scope + "> (want spawn/loot)");
+    }
+
+    /**
+      * T4 pack-driven policy (hub
+      * {@code decisions/SPI_STATE_VOCABULARY.md}): the owned file seals
+      * both tables at wire time ({@link #fromFiles}), so the forge wire
+      * reads plain data plus fresh jobs off this interface and drops its
+      * content imports. Config-independent packs (count fixtures built by
+      * the int constructors, never wired to a file) serve no policy: the
+      * accessors refuse loudly instead of guessing numbers.
+      */
+    private void requirePolicy() {
+        if (loot == null || spawn == null) {
+            throw new IllegalStateException("E_EXAMPLE_POLICY:unwired "
+                    + "(pack never wired to an owned file — want fromFiles)");
+        }
+    }
+
+    public Map<String, String> lootDrops() {
+        requirePolicy();
+        return loot.drops();
+    }
+
+    public String lootOreKind() {
+        requirePolicy();
+        return LootJob.ORE;
+    }
+
+    public String lootBeastKind() {
+        requirePolicy();
+        return LootJob.BEAST;
+    }
+
+    public long lootCount() {
+        requirePolicy();
+        return loot.count();
+    }
+
+    public String spawnMob() {
+        requirePolicy();
+        return spawn.mob();
+    }
+
+    public long spawnHp() {
+        requirePolicy();
+        return spawn.hp();
+    }
+
+    public long spawnCap() {
+        requirePolicy();
+        return spawn.cap();
+    }
+
+    public long spawnBudget() {
+        requirePolicy();
+        return spawn.budget();
+    }
+
+    public long spawnYMin() {
+        requirePolicy();
+        return spawn.yMin();
+    }
+
+    public long spawnYMax() {
+        requirePolicy();
+        return spawn.yMax();
+    }
+
+    public MatouJob<List<String>> lootJob() {
+        requirePolicy();
+        return new LootJob();
+    }
+
+    public MatouJob<List<String>> spawnJob() {
+        requirePolicy();
+        return new SpawnJob();
     }
 }

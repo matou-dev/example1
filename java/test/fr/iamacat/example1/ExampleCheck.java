@@ -1253,6 +1253,8 @@ public final class ExampleCheck {
 
         vocabularySection();
 
+        policySection();
+
         System.out.println("ok example1 : all");
     }
 
@@ -1684,6 +1686,81 @@ public final class ExampleCheck {
         } catch (NullPointerException e) {
             System.out.println("ok example1 : refused pack null scope ("
                     + e.getMessage() + ")");
+        }
+    }
+
+    static void policySection() {
+        // --- T4 policy: the owned file seals both tables at wire time, so
+        // the forge wire reads plain data plus fresh jobs off the pack and
+        // drops its content imports. Values mirror content/owned.matou —
+        // the gate proves content-decided numbers, never bridge constants.
+        final ExamplePack pack = ExamplePack.fromFiles(
+                "content/owned.matou", "content/additive.matou");
+        check(pack.lootDrops().size() == 2, "pack policy 2 kinds");
+        check("example1.content:my_gem".equals(
+                pack.lootDrops().get(pack.lootOreKind())),
+                "pack policy ore pays gem");
+        check("example1.content:my_gem".equals(
+                pack.lootDrops().get(pack.lootBeastKind())),
+                "pack policy beast pays gem");
+        check(!pack.lootOreKind().equals(pack.lootBeastKind()),
+                "pack policy kinds distinct");
+        check(pack.lootCount() == 1L, "pack policy authorial count");
+        check("example1.content:my_beast".equals(pack.spawnMob()),
+                "pack policy spawn mob");
+        check(pack.spawnHp() == 20L, "pack policy spawn hp");
+        check(pack.spawnCap() == 4L, "pack policy spawn cap");
+        check(pack.spawnBudget() == 1L, "pack policy spawn budget");
+        check(pack.spawnYMin() == 66L && pack.spawnYMax() == 68L,
+                "pack policy spawn y band");
+        check(pack.lootJob() instanceof LootJob,
+                "pack serves the loot job");
+        check(pack.spawnJob() instanceof SpawnJob,
+                "pack serves the spawn job");
+        try {
+            pack.lootDrops().put("ore", "example1.content:nope");
+            check(false, "pack policy drops immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : pack policy drops immutable");
+        }
+        // Policy rides the configured and veined packs too (vein files
+        // never fund tables); count fixtures serve none and refuse loud.
+        Map<String, String> cfg = new HashMap<String, String>();
+        cfg.put("ownedFile", "content/owned.matou");
+        cfg.put("scatterFile", "content/additive.matou");
+        ExamplePack viaCfg = new ExamplePack();
+        viaCfg.configure(cfg);
+        check(viaCfg.spawnMob().equals(pack.spawnMob()),
+                "pack configure wires policy");
+        check(viaCfg.lootDrops().equals(pack.lootDrops()),
+                "pack configure wires drops");
+        final ExamplePack bare = new ExamplePack();
+        final ExamplePack counts = new ExamplePack(8, 4);
+        Runnable[] unwired = new Runnable[]{
+            () -> { bare.lootDrops(); },
+            () -> { bare.lootCount(); },
+            () -> { bare.lootOreKind(); },
+            () -> { bare.lootBeastKind(); },
+            () -> { bare.spawnMob(); },
+            () -> { bare.spawnHp(); },
+            () -> { bare.spawnCap(); },
+            () -> { bare.spawnBudget(); },
+            () -> { bare.spawnYMin(); },
+            () -> { bare.spawnYMax(); },
+            () -> { bare.lootJob(); },
+            () -> { bare.spawnJob(); },
+            () -> { counts.lootDrops(); },
+            () -> { counts.spawnMob(); },
+            () -> { counts.spawnJob(); },
+        };
+        for (Runnable probe : unwired) {
+            try {
+                probe.run();
+                check(false, "pack unwired policy");
+            } catch (IllegalStateException e) {
+                System.out.println("ok example1 : refused unwired policy ("
+                        + e.getMessage() + ")");
+            }
         }
     }
 }

@@ -2,6 +2,8 @@ package fr.iamacat.example1;
 
 import fr.iamacat.spi.MatouId;
 import fr.iamacat.spi.Snapshot;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -84,6 +86,26 @@ public final class ExampleCheck {
         Map<MatouId, Object> states = new HashMap<MatouId, Object>();
         states.put(id, Long.valueOf(count));
         return new Snapshot(tick, states);
+    }
+
+    /**
+     * Writes a temp content file with the owned header plus the given
+     * block stanza (bad-block refusal fixtures must not live in
+     * {@code content/}: every file there must stay dual-parsable).
+     */
+    private static String tmpMatou(String stanza) {
+        String body = "syntax 1\nnamespace example1.content\n\n"
+                + "genre Block : Data\nfield hardness : f32\n"
+                + "field opaque : bool\n\n" + stanza;
+        try {
+            java.nio.file.Path p =
+                    Files.createTempFile("blockspec", ".matou");
+            Files.write(p, body.getBytes(StandardCharsets.UTF_8));
+            p.toFile().deleteOnExit();
+            return p.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("tmpMatou: " + e.getMessage(), e);
+        }
     }
 
     public static void main(String[] args) {
@@ -815,6 +837,63 @@ public final class ExampleCheck {
                     Arrays.asList("badcell"),
                     Collections.<String>emptyList());
         }, "structure merge bad cell");
+
+        // --- blockspec: registration source, parse-once from owned ---
+        List<BlockSpec> specs =
+                BlockSpec.fromFile("content/owned.matou");
+        check(specs.size() == 1, "blockspec count 1");
+        BlockSpec ore = specs.get(0);
+        check(ore.namespace().equals("example1.content"),
+                "blockspec namespace");
+        check(ore.name().equals("my_ore"), "blockspec name");
+        check(ore.hardness() == 3.0f, "blockspec hardness");
+        check(ore.opaque(), "blockspec opaque");
+        check(BlockSpec.fromFile("content/additive.matou").isEmpty(),
+                "blockspec no blocks is empty");
+        try {
+            specs.add(ore);
+            check(false, "blockspec list immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : blockspec list immutable");
+        }
+        // Refusal fixtures live in temp files: content/*.matou must stay
+        // dual-parsable (tools/check_content.py), so bad blocks never land
+        // next to the proof content.
+        checkRefused(new Refusal[]{
+            new Refusal(() -> {
+                BlockSpec.fromFile("content/nope.matou");
+            }, "blockspec unreadable"),
+            new Refusal(() -> {
+                BlockSpec.fromFile(tmpMatou("block my_ore\n"
+                        + "  opaque = true\n"));
+            }, "blockspec missing hardness"),
+            new Refusal(() -> {
+                BlockSpec.fromFile(tmpMatou("block my_ore\n"
+                        + "  hardness = NaN\n"
+                        + "  opaque = true\n"));
+            }, "blockspec NaN hardness"),
+            new Refusal(() -> {
+                BlockSpec.fromFile(tmpMatou("block my_ore\n"
+                        + "  hardness = 3.0\n"));
+            }, "blockspec missing opaque"),
+            new Refusal(() -> {
+                BlockSpec.fromFile(tmpMatou("block my_ore\n"
+                        + "  hardness = 3.0\n"
+                        + "  opaque = yes\n"));
+            }, "blockspec bad opaque"),
+        });
+        checkNullRefused(new Refusal[]{
+            new Refusal(() -> {
+                BlockSpec.fromFile(null);
+            }, "blockspec null path"),
+        });
+        expectRefused(() -> {
+            new BlockSpec("example1.content", "", 3.0f, true);
+        }, "blockspec empty name");
+        expectRefused(() -> {
+            new BlockSpec("example1.content", "my_ore",
+                    Float.POSITIVE_INFINITY, true);
+        }, "blockspec infinite hardness");
 
         System.out.println("ok example1 : all");
     }

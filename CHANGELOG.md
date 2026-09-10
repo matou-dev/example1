@@ -7,6 +7,15 @@ Full notes per tag: https://github.com/matou-dev/example1/releases.
 
 ## [Unreleased]
 
+- Extract `ExamplePolicy` holder (structural pass, hub
+  `decisions/SPI_STATE_VOCABULARY.md`): the sealed loot/spawn tables
+  plus the twelve `PolicyPack` accessors move out of `ExamplePack`
+  (637 to 606 lines), which delegates; wiring paths carry the holder
+  by reference (structure/vein files never fund tables), count
+  fixtures hold it unwired. Public API, sealed values and `E_*`
+  codes unchanged — E0-locked by the provision battery and the
+  policy comparateur over every wiring path.
+
 - Vein V4 (`content/vein.matou`, SYNTAX-V4): pure `VeinPlaceJob`
   (seeded solid clusters of one block on the `BASE_Y = 60` band, count +
   size from snapshot states with `Counts`-style refusals, `veinblock.`

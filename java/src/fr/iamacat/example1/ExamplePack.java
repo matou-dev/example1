@@ -66,16 +66,14 @@ public final class ExamplePack implements ConfigurablePack,
     private int scatterCount;
     private List<StructurePlaceJob> structures;
     private VeinPlaceJob vein;
-    private LootTable loot;
-    private SpawnTable spawn;
+    private ExamplePolicy policy;
     private boolean configured;
 
     /** No-arg for the reflective loader; {@link #configure} must follow. */
     public ExamplePack() {
         this.structures = Collections.<StructurePlaceJob>emptyList();
         this.vein = null;
-        this.loot = null;
-        this.spawn = null;
+        this.policy = ExamplePolicy.unwired();
         this.configured = false;
     }
 
@@ -104,8 +102,7 @@ public final class ExamplePack implements ConfigurablePack,
                 OwnedVeinJob.countOf(Integer.valueOf(scatterCount));
         this.structures = checked(structures);
         this.vein = null;
-        this.loot = null;
-        this.spawn = null;
+        this.policy = ExamplePolicy.unwired();
         this.configured = true;
     }
 
@@ -185,8 +182,7 @@ public final class ExamplePack implements ConfigurablePack,
         this.scatterCount = ready.scatterCount;
         this.structures = ready.structures;
         this.vein = ready.vein;
-        this.loot = ready.loot;
-        this.spawn = ready.spawn;
+        this.policy = ready.policy;
         this.configured = true;
     }
 
@@ -238,8 +234,7 @@ public final class ExamplePack implements ConfigurablePack,
                 featureCount(parse(ownedPath), "my_vein", ownedPath),
                 featureCount(parse(scatterPath), "scatter_additive",
                         scatterPath));
-        pack.loot = LootTable.fromFile(ownedPath);
-        pack.spawn = SpawnTable.fromFile(ownedPath);
+        pack.policy = ExamplePolicy.fromFile(ownedPath);
         return pack;
     }
 
@@ -333,8 +328,7 @@ public final class ExamplePack implements ConfigurablePack,
             List<StructurePlaceJob> structures) {
         ExamplePack pack = new ExamplePack(legacy.ownedCount,
                 legacy.scatterCount, structures);
-        pack.loot = legacy.loot;
-        pack.spawn = legacy.spawn;
+        pack.policy = legacy.policy;
         return pack;
     }
 
@@ -354,8 +348,7 @@ public final class ExamplePack implements ConfigurablePack,
         }
         ExamplePack out = new ExamplePack(pack.ownedCount,
                 pack.scatterCount, pack.structures, vein);
-        out.loot = pack.loot;
-        out.spawn = pack.spawn;
+        out.policy = pack.policy;
         return out;
     }
 
@@ -556,82 +549,58 @@ public final class ExamplePack implements ConfigurablePack,
     }
 
     /**
-      * T4 pack-driven policy (hub
-      * {@code decisions/SPI_STATE_VOCABULARY.md}): the owned file seals
-      * both tables at wire time ({@link #fromFiles}), so the forge wire
-      * reads plain data plus fresh jobs off this interface and drops its
-      * content imports. Config-independent packs (count fixtures built by
-      * the int constructors, never wired to a file) serve no policy: the
-      * accessors refuse loudly instead of guessing numbers.
-      */
-    private void requirePolicy() {
-        if (loot == null || spawn == null) {
-            throw new IllegalStateException("E_EXAMPLE_POLICY:unwired "
-                    + "(pack never wired to an owned file — want fromFiles)");
-        }
-    }
-
-    /** Sealed loot table, or the loud unwired refusal (never a guess). */
-    private LootTable loot() {
-        requirePolicy();
-        return loot;
-    }
-
-    /** Sealed spawn table, or the loud unwired refusal (never a guess). */
-    private SpawnTable spawn() {
-        requirePolicy();
-        return spawn;
-    }
-
+     * T4 pack-driven policy (hub
+     * {@code decisions/SPI_STATE_VOCABULARY.md}): the sealed holder rides
+     * every wiring path (structure/vein files never fund tables), so the
+     * forge wire reads plain data plus fresh jobs through
+     * {@link PolicyPack} and drops its content imports. Count-fixture
+     * packs hold no policy: the holder refuses loudly (never a guess).
+     */
     public Map<String, String> lootDrops() {
-        return loot().drops();
+        return policy.lootDrops();
     }
 
     public String lootOreKind() {
-        requirePolicy();
-        return LootJob.ORE;
+        return policy.lootOreKind();
     }
 
     public String lootBeastKind() {
-        requirePolicy();
-        return LootJob.BEAST;
+        return policy.lootBeastKind();
     }
 
     public long lootCount() {
-        return loot().count();
+        return policy.lootCount();
     }
 
     public String spawnMob() {
-        return spawn().mob();
+        return policy.spawnMob();
     }
 
     public long spawnHp() {
-        return spawn().hp();
+        return policy.spawnHp();
     }
 
     public long spawnCap() {
-        return spawn().cap();
+        return policy.spawnCap();
     }
 
     public long spawnBudget() {
-        return spawn().budget();
+        return policy.spawnBudget();
     }
 
     public long spawnYMin() {
-        return spawn().yMin();
+        return policy.spawnYMin();
     }
 
     public long spawnYMax() {
-        return spawn().yMax();
+        return policy.spawnYMax();
     }
 
     public MatouJob<List<String>> lootJob() {
-        requirePolicy();
-        return new LootJob();
+        return policy.lootJob();
     }
 
     public MatouJob<List<String>> spawnJob() {
-        requirePolicy();
-        return new SpawnJob();
+        return policy.spawnJob();
     }
 }

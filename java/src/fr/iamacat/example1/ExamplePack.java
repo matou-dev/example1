@@ -1,9 +1,13 @@
 package fr.iamacat.example1;
 
 import fr.iamacat.spi.ConfigurablePack;
+import fr.iamacat.spi.LootStates;
 import fr.iamacat.spi.MatouId;
 import fr.iamacat.spi.MatouJob;
 import fr.iamacat.spi.MatouParse;
+import fr.iamacat.spi.SpawnStates;
+import fr.iamacat.spi.StateVocabulary;
+import fr.iamacat.spi.VocabularyPack;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -44,7 +48,8 @@ import java.util.Set;
  * {@link #jobs()} in owned-first order, {@link #job} by id — adding a job
  * extends the registry, never the factory overloads.
  */
-public final class ExamplePack implements ConfigurablePack {
+public final class ExamplePack implements ConfigurablePack,
+        VocabularyPack {
     public static final String NAMESPACE = ExampleIds.NAMESPACE;
     static final String OWNED_KEY = "ownedFile";
     static final String SCATTER_KEY = "scatterFile";
@@ -473,5 +478,28 @@ public final class ExamplePack implements ConfigurablePack {
     /** True once a vein file was wired (legacy packs stay vein-free). */
     public boolean hasVein() {
         return vein != null;
+    }
+
+    /**
+     * T3 vocabulary provision (hub
+     * {@code decisions/SPI_STATE_VOCABULARY.md}): serves the sealed-spawn
+     * and sealed-loot vocabularies the bridge seals resolve at wire time
+     * (parse-once, beside the tables — never on the tick path), so job
+     * and seal share ids with no bridge-to-content compile edge.
+     * Config-independent: vocabularies name states, never content.
+     * Unknown or null scopes are refused loudly, never defaulted.
+     */
+    public StateVocabulary vocabulary(String scope) {
+        if (scope == null) {
+            throw new NullPointerException("E_EXAMPLE_VOCAB:null scope");
+        }
+        if (SpawnStates.SCOPE.equals(scope)) {
+            return SpawnStates.vocabulary(ExampleIds.SPAWN_NS);
+        }
+        if (LootStates.SCOPE.equals(scope)) {
+            return LootStates.vocabulary(ExampleIds.LOOT_NS);
+        }
+        throw new IllegalArgumentException("E_EXAMPLE_VOCAB:unknown <"
+                + scope + "> (want spawn/loot)");
     }
 }

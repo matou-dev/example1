@@ -6,6 +6,8 @@ import fr.iamacat.spi.MatouId;
 import fr.iamacat.spi.MatouJob;
 import fr.iamacat.spi.MatouRng;
 import fr.iamacat.spi.Snapshot;
+import fr.iamacat.spi.SpawnStates;
+import fr.iamacat.spi.StateVocabulary;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -33,21 +35,19 @@ import java.util.Map;
  * {@code E_SPAWN_*}, never defaulted.
  */
 public final class SpawnJob implements MatouJob<List<String>> {
+    /** Shared spawn vocabulary (T3 registry: the seal resolves the same). */
+    private static final StateVocabulary VOCABULARY =
+            SpawnStates.vocabulary(ExampleIds.SPAWN_NS);
     /** Sealed living census: entity id to spawn cell. */
-    public static final MatouId CENSUS =
-            MatouId.of("example1.spawn", "census");
+    public static final MatouId CENSUS = SpawnStates.census(VOCABULARY);
     /** Spawn table: the content mob ref every spawn carries. */
-    public static final MatouId TABLE =
-            MatouId.of("example1.spawn", "table");
+    public static final MatouId TABLE = SpawnStates.table(VOCABULARY);
     /** Living cap: census at cap means no spawn (never negative). */
-    public static final MatouId CAP =
-            MatouId.of("example1.spawn", "cap");
+    public static final MatouId CAP = SpawnStates.cap(VOCABULARY);
     /** Spawns landed per tick while room remains. */
-    public static final MatouId BUDGET =
-            MatouId.of("example1.spawn", "budget");
+    public static final MatouId BUDGET = SpawnStates.budget(VOCABULARY);
     /** Spawn ordinate range: {@code [yMin, yMax]} long pair, inclusive. */
-    public static final MatouId Y =
-            MatouId.of("example1.spawn", "y");
+    public static final MatouId Y = SpawnStates.y(VOCABULARY);
     /** Refusal prefix for the living cap (Counts-style trio). */
     public static final String CAP_CODE = "E_SPAWN_CAP";
     /** Refusal prefix for the per-tick budget (Counts-style trio). */
@@ -71,7 +71,7 @@ public final class SpawnJob implements MatouJob<List<String>> {
         if (due == 0) {
             return Collections.unmodifiableList(out);
         }
-        MatouRng rng = MatouRng.forAddress("example1.spawn", mob,
+        MatouRng rng = MatouRng.forAddress(ExampleIds.SPAWN_NS, mob,
                 Long.toString(snap.tick()));
         int span = range[1] - range[0] + 1;
         for (int s = 0; s < due; s++) {

@@ -15,6 +15,12 @@ public final class ExampleIds {
     /** Pack namespace, e.g. for {@link ExamplePack#namespace}. */
     public static final String NAMESPACE = "example1";
 
+    /** Sealed-spawn namespace (T3 registry: jobs + seals resolve here). */
+    public static final String SPAWN_NS = NAMESPACE + ".spawn";
+
+    /** Sealed-loot namespace (T3 registry: jobs + seals resolve here). */
+    public static final String LOOT_NS = NAMESPACE + ".loot";
+
     /** Refusal prefix for every snapshot/content count in this pack. */
     public static final String COUNT_CODE = "E_EXAMPLE_COUNT";
 

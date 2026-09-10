@@ -2,6 +2,9 @@ package fr.iamacat.example1;
 
 import fr.iamacat.spi.MatouId;
 import fr.iamacat.spi.Snapshot;
+import fr.iamacat.spi.LootStates;
+import fr.iamacat.spi.SpawnStates;
+import fr.iamacat.spi.StateVocabulary;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Arrays;
@@ -1248,6 +1251,8 @@ public final class ExampleCheck {
 
         spawnSection();
 
+        vocabularySection();
+
         System.out.println("ok example1 : all");
     }
 
@@ -1640,5 +1645,45 @@ public final class ExampleCheck {
                 spawn.decide(new Snapshot(7L, s));
             }, "spawn negative census id"),
         });
+    }
+
+    static void vocabularySection() {
+        // --- T3 registry: the pack serves the sealed-state vocabularies
+        // the bridge seals resolve — job and seal share ids with no
+        // bridge-to-content compile edge. A rename touches the pack
+        // holders, never a grep across src+test+pack.
+        final ExamplePack pack = new ExamplePack();
+        StateVocabulary spawn = pack.vocabulary(SpawnStates.SCOPE);
+        check(ExampleIds.SPAWN_NS.equals(spawn.namespace()),
+                "pack serves the spawn namespace");
+        check(SpawnJob.CENSUS.equals(SpawnStates.census(spawn)),
+                "spawn census shared");
+        check(SpawnJob.TABLE.equals(SpawnStates.table(spawn)),
+                "spawn table shared");
+        check(SpawnJob.CAP.equals(SpawnStates.cap(spawn)),
+                "spawn cap shared");
+        check(SpawnJob.BUDGET.equals(SpawnStates.budget(spawn)),
+                "spawn budget shared");
+        check(SpawnJob.Y.equals(SpawnStates.y(spawn)),
+                "spawn y shared");
+        StateVocabulary loot = pack.vocabulary(LootStates.SCOPE);
+        check(ExampleIds.LOOT_NS.equals(loot.namespace()),
+                "pack serves the loot namespace");
+        check(LootJob.HARVESTED.equals(LootStates.harvested(loot)),
+                "loot harvested shared");
+        check(LootJob.TABLE.equals(LootStates.table(loot)),
+                "loot table shared");
+        check(LootJob.COUNT.equals(LootStates.count(loot)),
+                "loot count shared");
+        expectRefused(() -> {
+            pack.vocabulary("capricorn");
+        }, "pack unknown scope");
+        try {
+            pack.vocabulary(null);
+            check(false, "pack null scope");
+        } catch (NullPointerException e) {
+            System.out.println("ok example1 : refused pack null scope ("
+                    + e.getMessage() + ")");
+        }
     }
 }

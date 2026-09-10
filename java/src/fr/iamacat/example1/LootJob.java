@@ -5,6 +5,8 @@ import fr.iamacat.spi.Counts;
 import fr.iamacat.spi.MatouId;
 import fr.iamacat.spi.MatouJob;
 import fr.iamacat.spi.Snapshot;
+import fr.iamacat.spi.LootStates;
+import fr.iamacat.spi.StateVocabulary;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -31,15 +33,16 @@ import java.util.Map;
  * are refused loudly under {@code E_LOOT_*}, never defaulted.
  */
 public final class LootJob implements MatouJob<List<String>> {
+    /** Shared loot vocabulary (T3 registry: the seal resolves the same). */
+    private static final StateVocabulary VOCABULARY =
+            LootStates.vocabulary(ExampleIds.LOOT_NS);
     /** Sealed harvests: {@code "x,y,z:kind"} to harvest tick. */
     public static final MatouId HARVESTED =
-            MatouId.of("example1.loot", "harvested");
+            LootStates.harvested(VOCABULARY);
     /** Loot table: harvest kind to content item ref. */
-    public static final MatouId TABLE =
-            MatouId.of("example1.loot", "table");
+    public static final MatouId TABLE = LootStates.table(VOCABULARY);
     /** Items paid per due harvest (tranche 1: always 1, no fortune). */
-    public static final MatouId COUNT =
-            MatouId.of("example1.loot", "count");
+    public static final MatouId COUNT = LootStates.count(VOCABULARY);
     /** Refusal prefix for the per-harvest count (Counts-style trio). */
     public static final String COUNT_CODE = "E_LOOT_COUNT";
 

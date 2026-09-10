@@ -1388,10 +1388,13 @@ public final class ExampleCheck {
                 SpawnTable.fromFile("content/owned.matou");
         check("example1.content:my_beast".equals(table.mob()),
                 "spawn table wires beast");
+        check(table.hp() == 20L, "spawn table wires beast hp");
         final String oneMob = tmpLoot("mob my_beast\n  hp = 20\n"
                 + "  drop = example1.content:my_gem\n");
         check(SpawnTable.fromFile(oneMob).mob().equals(table.mob()),
                 "spawn table wires like owned");
+        check(SpawnTable.fromFile(oneMob).hp() == 20L,
+                "spawn table wires hp like owned");
         expectRefused(() -> {
             SpawnTable.fromFile(tmpLoot(""));
         }, "spawn table empty mob");
@@ -1401,6 +1404,14 @@ public final class ExampleCheck {
                     + "mob b\n  hp = 2\n"
                     + "  drop = example1.content:my_gem\n"));
         }, "spawn table multi mob");
+        expectRefused(() -> {
+            SpawnTable.fromFile(tmpLoot("mob nohp\n"
+                    + "  drop = example1.content:my_gem\n"));
+        }, "spawn table missing hp");
+        expectRefused(() -> {
+            SpawnTable.fromFile(tmpLoot("mob flat\n  hp = 0\n"
+                    + "  drop = example1.content:my_gem\n"));
+        }, "spawn table zero hp");
         expectRefused(() -> {
             SpawnTable.fromFile("content/no-such.matou");
         }, "spawn table missing file");

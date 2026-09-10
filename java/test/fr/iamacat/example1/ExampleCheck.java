@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -105,6 +106,30 @@ public final class ExampleCheck {
             return p.toString();
         } catch (Exception e) {
             throw new RuntimeException("tmpMatou: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Writes a temp content file with a mob header plus the given mob
+     * stanza (loot refusal fixtures must not live in {@code content/}:
+     * every file there must stay dual-parsable and single-mob).
+     */
+    private static String tmpLoot(String stanza) {
+        String body = "syntax 1\nnamespace example1.content\n\n"
+                + "genre Item : Data\nfield stack : u32\n"
+                + "field label : string\n\n"
+                + "genre Mob : Data\nfield hp : u32\n"
+                + "field drop : item_ref\n\n"
+                + "item my_gem\n  stack = 64\n  label = \"shiny\"\n\n"
+                + stanza;
+        try {
+            java.nio.file.Path p =
+                    Files.createTempFile("loottable", ".matou");
+            Files.write(p, body.getBytes(StandardCharsets.UTF_8));
+            p.toFile().deleteOnExit();
+            return p.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("tmpLoot: " + e.getMessage(), e);
         }
     }
 
@@ -1209,6 +1234,149 @@ public final class ExampleCheck {
             new ExamplePack().configure(op);
         }, "vein blank veinFiles entry");
 
+        lootSection();
+
         System.out.println("ok example1 : all");
+    }
+
+    static void lootSection() {
+        // --- loot table: single mob funds both kinds from owned content ---
+        final LootTable table =
+                LootTable.fromFile("content/owned.matou");
+        check(table.drops().size() == 2, "loot table 2 kinds");
+        check("example1.content:my_gem".equals(
+                table.drops().get(LootJob.ORE)), "loot ore pays gem");
+        check("example1.content:my_gem".equals(
+                table.drops().get(LootJob.BEAST)), "loot beast pays gem");
+        try {
+            table.drops().put("ore", "example1.content:nope");
+            check(false, "loot table immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : loot table immutable");
+        }
+        final String oneMob = tmpLoot("mob my_beast\n  hp = 20\n"
+                + "  drop = example1.content:my_gem\n");
+        check(LootTable.fromFile(oneMob).drops().equals(table.drops()),
+                "loot table wires like owned");
+        expectRefused(() -> {
+            LootTable.fromFile(tmpLoot(""));
+        }, "loot table empty mob");
+        expectRefused(() -> {
+            LootTable.fromFile(tmpLoot("mob a\n  hp = 1\n"
+                    + "  drop = example1.content:my_gem\n"
+                    + "mob b\n  hp = 2\n"
+                    + "  drop = example1.content:my_gem\n"));
+        }, "loot table multi mob");
+        expectRefused(() -> {
+            LootTable.fromFile("content/no-such.matou");
+        }, "loot table missing file");
+        checkNullRefused(new Refusal[]{
+            new Refusal(() -> {
+                LootTable.fromFile(null);
+            }, "loot table null path"),
+        });
+
+        // --- loot job: pure, immediate, content refs out ---
+        final LootJob loot = new LootJob();
+        Map<String, Long> harvest = new LinkedHashMap<String, Long>();
+        harvest.put("8,10,8:" + LootJob.ORE, Long.valueOf(7L));
+        harvest.put("12,10,8:" + LootJob.BEAST, Long.valueOf(7L));
+        Map<MatouId, Object> lootStates = new HashMap<MatouId, Object>();
+        lootStates.put(LootJob.HARVESTED, harvest);
+        lootStates.put(LootJob.TABLE, table.drops());
+        lootStates.put(LootJob.COUNT, Long.valueOf(1L));
+        final Snapshot lsnap = new Snapshot(7L, lootStates);
+        List<String> first = loot.decide(lsnap);
+        check(first.equals(loot.decide(lsnap)), "loot pure");
+        check(first.equals(Arrays.asList("8,10,8:example1.content:my_gem",
+                "12,10,8:example1.content:my_gem")), "loot pays gem twice");
+        try {
+            first.add("0,0,0:example1.content:my_gem");
+            check(false, "loot decision immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : loot decision immutable");
+        }
+        Map<String, Long> future = new LinkedHashMap<String, Long>();
+        future.put("8,10,8:" + LootJob.ORE, Long.valueOf(9L));
+        Map<MatouId, Object> futureStates =
+                new HashMap<MatouId, Object>(lootStates);
+        futureStates.put(LootJob.HARVESTED, future);
+        check(loot.decide(new Snapshot(7L, futureStates)).isEmpty(),
+                "loot future harvest not due");
+        Map<MatouId, Object> doubleStates =
+                new HashMap<MatouId, Object>(lootStates);
+        doubleStates.put(LootJob.COUNT, Long.valueOf(2L));
+        check(loot.decide(new Snapshot(7L, doubleStates)).size() == 4,
+                "loot count state is live");
+        expectNullRefused(() -> {
+            loot.decide(null);
+        }, "loot null snapshot");
+        checkRefused(new Refusal[]{
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(lootStates);
+                s.remove(LootJob.HARVESTED);
+                loot.decide(new Snapshot(7L, s));
+            }, "loot missing harvested"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(lootStates);
+                s.remove(LootJob.TABLE);
+                loot.decide(new Snapshot(7L, s));
+            }, "loot missing table"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(lootStates);
+                s.remove(LootJob.COUNT);
+                loot.decide(new Snapshot(7L, s));
+            }, "loot missing count"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(lootStates);
+                s.put(LootJob.COUNT, "one");
+                loot.decide(new Snapshot(7L, s));
+            }, "loot bad count type"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(lootStates);
+                s.put(LootJob.COUNT, Long.valueOf(0L));
+                loot.decide(new Snapshot(7L, s));
+            }, "loot zero count"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(lootStates);
+                Map<String, String> half =
+                        new HashMap<String, String>(table.drops());
+                half.remove(LootJob.BEAST);
+                s.put(LootJob.TABLE, half);
+                loot.decide(new Snapshot(7L, s));
+            }, "loot half table"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(lootStates);
+                Map<String, Long> strange =
+                        new LinkedHashMap<String, Long>();
+                strange.put("8,10,8:fish", Long.valueOf(7L));
+                s.put(LootJob.HARVESTED, strange);
+                loot.decide(new Snapshot(7L, s));
+            }, "loot unknown kind"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(lootStates);
+                Map<String, Long> shapeless =
+                        new LinkedHashMap<String, Long>();
+                shapeless.put("8,10:ore", Long.valueOf(7L));
+                s.put(LootJob.HARVESTED, shapeless);
+                loot.decide(new Snapshot(7L, s));
+            }, "loot bad harvest shape"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(lootStates);
+                Map<String, Long> neg = new LinkedHashMap<String, Long>();
+                neg.put("8,10,8:ore", Long.valueOf(-1L));
+                s.put(LootJob.HARVESTED, neg);
+                loot.decide(new Snapshot(7L, s));
+            }, "loot negative harvest tick"),
+        });
     }
 }

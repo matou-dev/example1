@@ -1236,6 +1236,8 @@ public final class ExampleCheck {
 
         lootSection();
 
+        spawnSection();
+
         System.out.println("ok example1 : all");
     }
 
@@ -1377,6 +1379,193 @@ public final class ExampleCheck {
                 s.put(LootJob.HARVESTED, neg);
                 loot.decide(new Snapshot(7L, s));
             }, "loot negative harvest tick"),
+        });
+    }
+
+    static void spawnSection() {
+        // --- spawn table: single mob ref from owned content ---
+        final SpawnTable table =
+                SpawnTable.fromFile("content/owned.matou");
+        check("example1.content:my_beast".equals(table.mob()),
+                "spawn table wires beast");
+        final String oneMob = tmpLoot("mob my_beast\n  hp = 20\n"
+                + "  drop = example1.content:my_gem\n");
+        check(SpawnTable.fromFile(oneMob).mob().equals(table.mob()),
+                "spawn table wires like owned");
+        expectRefused(() -> {
+            SpawnTable.fromFile(tmpLoot(""));
+        }, "spawn table empty mob");
+        expectRefused(() -> {
+            SpawnTable.fromFile(tmpLoot("mob a\n  hp = 1\n"
+                    + "  drop = example1.content:my_gem\n"
+                    + "mob b\n  hp = 2\n"
+                    + "  drop = example1.content:my_gem\n"));
+        }, "spawn table multi mob");
+        expectRefused(() -> {
+            SpawnTable.fromFile("content/no-such.matou");
+        }, "spawn table missing file");
+        checkNullRefused(new Refusal[]{
+            new Refusal(() -> {
+                SpawnTable.fromFile(null);
+            }, "spawn table null path"),
+        });
+
+        // --- spawn job: pure, budgeted, capped, y-banded ---
+        final SpawnJob spawn = new SpawnJob();
+        final String mob = table.mob();
+        Map<String, String> empty = new LinkedHashMap<String, String>();
+        Map<MatouId, Object> spawnStates = new HashMap<MatouId, Object>();
+        spawnStates.put(SpawnJob.CENSUS, empty);
+        spawnStates.put(SpawnJob.TABLE, mob);
+        spawnStates.put(SpawnJob.CAP, Long.valueOf(4L));
+        spawnStates.put(SpawnJob.BUDGET, Long.valueOf(1L));
+        spawnStates.put(SpawnJob.Y, Arrays.asList(
+                Long.valueOf(66L), Long.valueOf(68L)));
+        final Snapshot ssnap = new Snapshot(7L, spawnStates);
+        List<String> first = spawn.decide(ssnap);
+        check(first.equals(spawn.decide(ssnap)), "spawn pure");
+        check(first.size() == 1, "spawn budget 1 lands 1");
+        boolean shaped = true;
+        boolean banded = true;
+        for (String cell : first) {
+            shaped &= cell.matches(
+                    "[0-9]+,[0-9]+,[0-9]+:example1\\.content:my_beast");
+            String[] parts = cell.split(":")[0].split(",");
+            int x = Integer.parseInt(parts[0]);
+            int y = Integer.parseInt(parts[1]);
+            int z = Integer.parseInt(parts[2]);
+            banded &= (x >= 0 && x < 16 && z >= 0 && z < 16
+                    && y >= 66 && y <= 68);
+        }
+        check(shaped, "spawn cells shaped");
+        check(banded, "spawn pads in grid x banded y");
+        check(!spawn.decide(new Snapshot(8L, spawnStates)).equals(first),
+                "spawn tick addressed");
+        try {
+            first.add("0,66,0:" + mob);
+            check(false, "spawn decision immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : spawn decision immutable");
+        }
+        Map<String, String> trio = new LinkedHashMap<String, String>();
+        trio.put("11", "1,66,2:" + mob);
+        trio.put("23", "3,67,4:" + mob);
+        trio.put("37", "5,68,6:" + mob);
+        Map<MatouId, Object> trioStates =
+                new HashMap<MatouId, Object>(spawnStates);
+        trioStates.put(SpawnJob.CENSUS, trio);
+        check(spawn.decide(new Snapshot(7L, trioStates)).size() == 1,
+                "spawn room 1 lands 1");
+        Map<String, String> full = new LinkedHashMap<String, String>(trio);
+        full.put("41", "7,66,8:" + mob);
+        Map<MatouId, Object> fullStates =
+                new HashMap<MatouId, Object>(spawnStates);
+        fullStates.put(SpawnJob.CENSUS, full);
+        check(spawn.decide(new Snapshot(7L, fullStates)).isEmpty(),
+                "spawn cap reached lands none");
+        Map<MatouId, Object> doubleStates =
+                new HashMap<MatouId, Object>(spawnStates);
+        doubleStates.put(SpawnJob.BUDGET, Long.valueOf(2L));
+        check(spawn.decide(new Snapshot(7L, doubleStates)).size() == 2,
+                "spawn budget state is live");
+        expectNullRefused(() -> {
+            spawn.decide(null);
+        }, "spawn null snapshot");
+        checkRefused(new Refusal[]{
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(spawnStates);
+                s.remove(SpawnJob.CENSUS);
+                spawn.decide(new Snapshot(7L, s));
+            }, "spawn missing census"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(spawnStates);
+                s.remove(SpawnJob.TABLE);
+                spawn.decide(new Snapshot(7L, s));
+            }, "spawn missing table"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(spawnStates);
+                s.remove(SpawnJob.CAP);
+                spawn.decide(new Snapshot(7L, s));
+            }, "spawn missing cap"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(spawnStates);
+                s.remove(SpawnJob.BUDGET);
+                spawn.decide(new Snapshot(7L, s));
+            }, "spawn missing budget"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(spawnStates);
+                s.remove(SpawnJob.Y);
+                spawn.decide(new Snapshot(7L, s));
+            }, "spawn missing y"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(spawnStates);
+                s.put(SpawnJob.CAP, "four");
+                spawn.decide(new Snapshot(7L, s));
+            }, "spawn bad cap type"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(spawnStates);
+                s.put(SpawnJob.CAP, Long.valueOf(0L));
+                spawn.decide(new Snapshot(7L, s));
+            }, "spawn zero cap"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(spawnStates);
+                s.put(SpawnJob.BUDGET, Long.valueOf(0L));
+                spawn.decide(new Snapshot(7L, s));
+            }, "spawn zero budget"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(spawnStates);
+                s.put(SpawnJob.TABLE, "my_beast");
+                spawn.decide(new Snapshot(7L, s));
+            }, "spawn bare table ref"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(spawnStates);
+                s.put(SpawnJob.Y, "66,68");
+                spawn.decide(new Snapshot(7L, s));
+            }, "spawn bad y type"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(spawnStates);
+                s.put(SpawnJob.Y, Arrays.asList(
+                        Long.valueOf(68L), Long.valueOf(66L)));
+                spawn.decide(new Snapshot(7L, s));
+            }, "spawn inverted y"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(spawnStates);
+                Map<String, String> strange =
+                        new LinkedHashMap<String, String>();
+                strange.put("11", "1,66,2:example1.content:other");
+                s.put(SpawnJob.CENSUS, strange);
+                spawn.decide(new Snapshot(7L, s));
+            }, "spawn foreign census"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(spawnStates);
+                Map<String, String> shapeless =
+                        new LinkedHashMap<String, String>();
+                shapeless.put("11", "1,66:" + mob);
+                s.put(SpawnJob.CENSUS, shapeless);
+                spawn.decide(new Snapshot(7L, s));
+            }, "spawn bad census shape"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(spawnStates);
+                Map<String, String> badId =
+                        new LinkedHashMap<String, String>();
+                badId.put("-3", "1,66,2:" + mob);
+                s.put(SpawnJob.CENSUS, badId);
+                spawn.decide(new Snapshot(7L, s));
+            }, "spawn negative census id"),
         });
     }
 }

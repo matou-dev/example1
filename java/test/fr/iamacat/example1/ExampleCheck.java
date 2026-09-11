@@ -1793,6 +1793,16 @@ public final class ExampleCheck {
                 && table.yMin("my_brute") == 66L
                 && table.yMax("my_brute") == 68L,
                 "spawn owned wires per-mob y band");
+        check(table.mobRefs().equals(
+                Arrays.asList("example1.content:my_beast",
+                        "example1.content:my_brute")),
+                "spawn owned mobRefs qualify both mobs in file order");
+        try {
+            table.mobRefs().add("example1.content:my_ghost");
+            check(false, "spawn mobRefs immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : spawn mobRefs immutable");
+        }
         try {
             table.mobs().add("my_ghost");
             check(false, "spawn mobs immutable");
@@ -1857,6 +1867,9 @@ public final class ExampleCheck {
                 "spawn single seals single");
         check("example1.content:my_beast".equals(single.mob()),
                 "spawn single wires beast");
+        check(single.mobRefs().equals(Collections.singletonList(
+                "example1.content:my_beast")),
+                "spawn single mobRefs holds the sole ref");
         check(single.hp() == 20L
                 && single.hp("my_beast") == single.hp(),
                 "spawn single wires hp like owned beast");
@@ -1873,6 +1886,10 @@ public final class ExampleCheck {
                 SpawnTable.fromFile(twoMob).mobs()).equals(
                 Arrays.asList("my_beast", "my_brute")),
                 "spawn tmp two-mob seals in file order");
+        check(SpawnTable.fromFile(twoMob).mobRefs().equals(
+                Arrays.asList("example1.content:my_beast",
+                        "example1.content:my_brute")),
+                "spawn tmp two-mob mobRefs qualify in file order");
         expectRefused(() -> {
             SpawnTable.fromFile(tmpLoot("mob a\n  hp = 1\n"
                     + "  drop = example1.content:my_gem\n" + MOB_POLICY

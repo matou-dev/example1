@@ -1,6 +1,7 @@
 package fr.iamacat.example1;
 
 import fr.iamacat.spi.MatouParse;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -24,7 +25,9 @@ import java.util.Set;
  * mob row: the seams never default numbers. Multi-mob tables seal per
  * mob: the per-mob readers {@link #hp(String)} / {@link #cap(String)} /
  * {@link #budget(String)} / {@link #yMin(String)} / {@link #yMax(String)}
- * serve one mob, {@link #mobs()} lists them in file order, and the legacy
+ * serve one mob, {@link #mobs()} lists short names in file order,
+ * {@link #mobRefs()} qualifies them in file order (the registration
+ * enumerates every sealed mob through it), and the legacy
  * {@link #mob()} / {@link #hp()} / {@link #cap()} / {@link #budget()} /
  * {@link #yMin()} / {@link #yMax()} serve the sole sealed mob and refuse
  * on multi-mob tables (same sole-view pattern as
@@ -58,6 +61,22 @@ public final class SpawnTable {
     public Set<String> mobs() {
         return Collections.unmodifiableSet(
                 new LinkedHashSet<String>(perMobHp.keySet()));
+    }
+
+    /**
+     * Qualified content mob refs ({@code "ns:name"}), in file order
+     * (unmodifiable, never empty). The bridge registration enumerates
+     * every sealed mob through this list: one generic beast
+     * registration covers them all, the NBT identity distinguishes
+     * them at runtime — never one registration per mob (hub
+     * decisions/VIRTUAL_HITBOXES.md, second-beast row).
+     */
+    public List<String> mobRefs() {
+        List<String> out = new ArrayList<String>();
+        for (String shortMob : perMobHp.keySet()) {
+            out.add(namespace + ":" + shortMob);
+        }
+        return Collections.unmodifiableList(out);
     }
 
     /**

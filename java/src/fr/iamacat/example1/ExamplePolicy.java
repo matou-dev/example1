@@ -9,7 +9,7 @@ import java.util.Set;
  * T4 pack-driven policy holder (hub
  * {@code decisions/SPI_STATE_VOCABULARY.md}, combat policy hub
  * {@code decisions/VIRTUAL_HITBOXES.md}): the sealed loot/spawn/combat
- * tables plus the twenty-seven {@code PolicyPack} accessors, out of
+ * tables plus the twenty-eight {@code PolicyPack} accessors, out of
  * {@link ExamplePack}. The owned file seals all three tables at wire time
  * ({@link #fromFile} — combat, spawn and loot seal per mob, the tables'
  * own empty refusals propagate untouched); structure and vein files never
@@ -155,6 +155,10 @@ public final class ExamplePolicy {
 
     public Set<String> spawnMobs() {
         return spawn().mobs();
+    }
+
+    public String spawnMobRef(String mob) {
+        return spawn().mobRef(mob);
     }
 
     public long spawnHp(String mob) {

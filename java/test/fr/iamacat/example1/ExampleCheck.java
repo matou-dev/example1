@@ -1913,6 +1913,18 @@ public final class ExampleCheck {
         } catch (UnsupportedOperationException e) {
             System.out.println("ok example1 : spawn mobRefs immutable");
         }
+        check(table.mobRef("my_beast").equals("example1.content:my_beast")
+                && table.mobRef("my_brute").equals(
+                        "example1.content:my_brute"),
+                "spawn owned mobRef qualifies per mob");
+        expectRefused(() -> {
+            table.mobRef("my_ghost");
+        }, "spawn unknown mob ref");
+        checkNullRefused(new Refusal[]{
+            new Refusal(() -> {
+                table.mobRef(null);
+            }, "spawn null mob ref"),
+        });
         try {
             table.mobs().add("my_ghost");
             check(false, "spawn mobs immutable");
@@ -1980,6 +1992,8 @@ public final class ExampleCheck {
         check(single.mobRefs().equals(Collections.singletonList(
                 "example1.content:my_beast")),
                 "spawn single mobRefs holds the sole ref");
+        check(single.mobRef("my_beast").equals(single.mob()),
+                "spawn single mobRef equals sole");
         check(single.hp() == 20L
                 && single.hp("my_beast") == single.hp(),
                 "spawn single wires hp like owned beast");
@@ -2000,6 +2014,11 @@ public final class ExampleCheck {
                 Arrays.asList("example1.content:my_beast",
                         "example1.content:my_brute")),
                 "spawn tmp two-mob mobRefs qualify in file order");
+        check(SpawnTable.fromFile(twoMob).mobRef("my_beast").equals(
+                "example1.content:my_beast")
+                && SpawnTable.fromFile(twoMob).mobRef("my_brute").equals(
+                        "example1.content:my_brute"),
+                "spawn tmp two-mob mobRef qualifies per mob");
         expectRefused(() -> {
             SpawnTable.fromFile(tmpLoot("mob a\n  hp = 1\n"
                     + "  drop = example1.content:my_gem\n" + MOB_POLICY
@@ -2483,6 +2502,14 @@ public final class ExampleCheck {
                 && pack.spawnYMin("my_brute") == 66L
                 && pack.spawnYMax("my_brute") == 68L,
                 "pack policy spawn per-mob y band");
+        check(pack.spawnMobRef("my_beast").equals(
+                "example1.content:my_beast")
+                && pack.spawnMobRef("my_brute").equals(
+                        "example1.content:my_brute"),
+                "pack policy spawn qualified mob view per mob");
+        expectRefused(() -> {
+            pack.spawnMobRef("my_ghost");
+        }, "pack spawn unknown mob ref");
         expectRefused(() -> {
             pack.spawnMob();
         }, "pack sole spawn mob on multi");
@@ -2745,6 +2772,7 @@ public final class ExampleCheck {
             () -> { bare.spawnBudget("my_beast"); },
             () -> { bare.spawnYMin("my_beast"); },
             () -> { bare.spawnYMax("my_beast"); },
+            () -> { bare.spawnMobRef("my_beast"); },
             () -> { bare.lootJob(); },
             () -> { bare.spawnJob(); },
             () -> { bare.combatWeakspots(); },

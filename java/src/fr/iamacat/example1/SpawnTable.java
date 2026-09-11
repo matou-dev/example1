@@ -80,6 +80,24 @@ public final class SpawnTable {
     }
 
     /**
+     * Qualified content mob ref ({@code "ns:name"}) for one sealed mob.
+     * Loud on null/unknown mob — never defaulted.
+     */
+    public String mobRef(String mob) {
+        if (mob == null) {
+            throw new NullPointerException("E_EXAMPLE_SPAWN:null mob "
+                    + "(want a sealed mob — see mobs())");
+        }
+        if (!perMobHp.containsKey(mob)) {
+            throw new IllegalArgumentException(
+                    "E_EXAMPLE_SPAWN:unknown mob <" + mob + "> (want one "
+                            + "of " + perMobHp.keySet() + " — never "
+                            + "defaulted)");
+        }
+        return namespace + ":" + mob;
+    }
+
+    /**
      * Spec hp for one mob (positive), applied to that beast's max
      * health. Loud on null/unknown mob — never defaulted.
      */

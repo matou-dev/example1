@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Gate M2 content: every content/*.matou must parse identically with the
 sibling SPI parsers (py reference + java port), and the proof shape holds
-(owned: 1 block + 1 item + 1 mob + 1 weakspot + 1 feature;
+(owned: 1 block + 1 item + 2 mobs + 2 weakspots + 1 feature (second-beast
+tranche: my_beast + my_brute share bone `head` through the SYNTAX-V6
+mob join, loot agrees on one drop);
 additive: 1 late feature;
 structure: 2 blocks + 1 leaf structure + 1 composite;
 structure_cross: 1 block + 1 cross-file cycle half;
@@ -21,7 +23,7 @@ PY_PARSER = os.path.join(SPI, "parser", "matou_parse.py")
 JAVA_BUILD = os.path.join(ROOT, "java", "build")
 JAVA_MAIN = "fr.iamacat.spi.MatouParse"
 
-WANT_OWNED = [("Block", 1), ("Item", 1), ("Mob", 1), ("Weakspot", 1),
+WANT_OWNED = [("Block", 1), ("Item", 1), ("Mob", 2), ("Weakspot", 2),
         ("Feature", 1)]
 WANT_ADDITIVE = [("Feature", 1)]
 WANT_STRUCTURE = [("Block", 2), ("Structure", 2)]

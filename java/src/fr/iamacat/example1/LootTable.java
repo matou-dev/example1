@@ -11,15 +11,20 @@ import java.util.Map;
  * content file through the SPI reference parser ({@link MatouParse}),
  * zero MC, same parse-once pattern as {@code BlockSpec.fromFile}. The
  * table has exactly two entries: {@code ore} and {@code beast} both pay
- * the content's single mob drop (hub decisions/LOOT.md single-table
+ * the content's agreed mob drop (hub decisions/LOOT.md single-table
  * scope — the vein block tells <i>where</i> ore lives, the mob drop tells
  * <i>what</i> everything pays, no fifth genre, no new fields), plus the
- * authorial items-per-harvest {@code count} from the mob's
+ * authorial items-per-harvest {@code count} from the mobs'
  * {@code drop_count} — the bridge transports it into the seal, it never
- * owns the number (content-decides tranche). A content with zero or
- * several mobs refuses loudly: picking a payer silently would be a
- * default, and per-mob tables are a documented re-opener, not a quiet
- * guess. Pure, Java 8, zero deps beyond matou-spi.
+ * owns the number (content-decides tranche). Every sealed mob funds one
+ * {@code (drop, drop_count)} pair; when all mobs agree, the single table
+ * seals exactly as before (zero behaviour change, the bridge is
+ * untouched), and when they diverge the seal refuses loudly under
+ * {@code E_EXAMPLE_LOOT:diverged} naming the disagreeing mobs — never a
+ * quiet pick. Per-mob loot (distinct drops per mob) stays a named
+ * follow-up, not a quiet extension. A content with zero mobs, a missing
+ * or bad drop, or a missing or non-positive drop_count refuses loudly
+ * too. Pure, Java 8, zero deps beyond matou-spi.
  */
 public final class LootTable {
     private final Map<String, String> drops;
@@ -42,9 +47,12 @@ public final class LootTable {
 
     /**
      * Parses the owned content file once and seals the two-entry table
-     * plus the authorial count. Loud on unreadable / unparsable / zero or
-     * several mobs / missing or bad drop / missing or non-positive
-     * drop_count — never defaulted.
+     * plus the authorial count. Every mob funds one
+     * {@code (drop, drop_count)} pair: unanimous mobs seal the agreed
+     * table, divergent mobs refuse. Loud on unreadable / unparsable /
+     * zero mobs / missing or bad drop / missing or non-positive
+     * drop_count / divergent drops or counts / duplicate mob — never
+     * defaulted.
      */
     @SuppressWarnings("unchecked")
     public static LootTable fromFile(String path) {
@@ -65,8 +73,12 @@ public final class LootTable {
                     "E_EXAMPLE_LOOT:bad shape in <" + path + ">");
         }
         String payer = null;
-        String payerMob = null;
+        String firstMob = null;
         long payerCount = -1L;
+        Map<String, String> dropByMob =
+                new LinkedHashMap<String, String>();
+        Map<String, Long> countByMob =
+                new LinkedHashMap<String, Long>();
         for (Object o : (List<Object>) instances) {
             if (!(o instanceof Map)) {
                 throw new IllegalArgumentException(
@@ -100,21 +112,39 @@ public final class LootTable {
                                 + "> in <" + path + "> (positive u32, "
                                 + "never defaulted)");
             }
-            if (payer != null) {
+            if (dropByMob.containsKey(rawName)) {
                 throw new IllegalArgumentException(
-                        "E_EXAMPLE_LOOT:multi <" + payerMob + ","
-                                + rawName + "> in <" + path + "> (single "
-                                + "table pays one drop — per-mob tables "
-                                + "are a re-opener, never a quiet pick)");
+                        "E_EXAMPLE_LOOT:dupe <" + rawName + "> in <"
+                                + path + "> (one row per mob — a second "
+                                + "row would be a quiet pick)");
             }
-            payer = (String) drop;
-            payerMob = (String) rawName;
-            payerCount = ((Number) dropCount).longValue();
+            dropByMob.put((String) rawName, (String) drop);
+            countByMob.put((String) rawName,
+                    Long.valueOf(((Number) dropCount).longValue()));
+            if (payer == null) {
+                payer = (String) drop;
+                firstMob = (String) rawName;
+                payerCount = ((Number) dropCount).longValue();
+            }
         }
         if (payer == null) {
             throw new IllegalArgumentException(
                     "E_EXAMPLE_LOOT:empty <" + path + "> (no mob funds "
                             + "block drops)");
+        }
+        for (Map.Entry<String, String> funded : dropByMob.entrySet()) {
+            String mob = funded.getKey();
+            long count = countByMob.get(mob).longValue();
+            if (funded.getValue().equals(payer) && count == payerCount) {
+                continue;
+            }
+            throw new IllegalArgumentException(
+                    "E_EXAMPLE_LOOT:diverged <" + mob + " drop="
+                            + funded.getValue() + " count=" + count
+                            + " vs " + firstMob + " drop=" + payer
+                            + " count=" + payerCount + "> in <" + path
+                            + "> (per-mob loot is a named follow-up — "
+                            + "never a quiet pick)");
         }
         Map<String, String> drops = new LinkedHashMap<String, String>();
         drops.put(LootJob.ORE, payer);

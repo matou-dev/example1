@@ -7,6 +7,7 @@ import fr.iamacat.spi.SpawnStates;
 import fr.iamacat.spi.StateVocabulary;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -114,8 +115,8 @@ public final class ExampleCheck {
 
     /**
      * Writes a temp content file with a mob header plus the given mob
-     * stanza (loot refusal fixtures must not live in {@code content/}:
-     * every file there must stay dual-parsable and single-mob).
+     * stanza (spawn/loot fixtures must not live in {@code content/}:
+     * every file there must stay dual-parsable and sealed).
      */
     private static String tmpLoot(String stanza) {
         String body = "syntax 1\nnamespace example1.content\n\n"
@@ -1411,12 +1412,36 @@ public final class ExampleCheck {
         expectRefused(() -> {
             LootTable.fromFile(tmpLoot(""));
         }, "loot table empty mob");
+        final String twoAgree = tmpLoot("mob a\n  hp = 1\n"
+                + "  drop = example1.content:my_gem\n" + MOB_POLICY
+                + "mob b\n  hp = 2\n"
+                + "  drop = example1.content:my_gem\n" + MOB_POLICY);
+        check(LootTable.fromFile(twoAgree).drops().equals(table.drops())
+                && LootTable.fromFile(twoAgree).count() == table.count(),
+                "loot table seals when mobs agree");
+        expectRefused(() -> {
+            LootTable.fromFile(tmpLoot("item other_gem\n  stack = 64\n"
+                    + "  label = \"other\"\n\n"
+                    + "mob a\n  hp = 1\n"
+                    + "  drop = example1.content:my_gem\n" + MOB_POLICY
+                    + "mob b\n  hp = 2\n"
+                    + "  drop = example1.content:other_gem\n"
+                    + MOB_POLICY));
+        }, "loot table diverged drop");
         expectRefused(() -> {
             LootTable.fromFile(tmpLoot("mob a\n  hp = 1\n"
                     + "  drop = example1.content:my_gem\n" + MOB_POLICY
                     + "mob b\n  hp = 2\n"
+                    + "  drop = example1.content:my_gem\n"
+                    + "  cap = 4\n  budget = 1\n"
+                    + "  y_min = 66\n  y_max = 68\n  drop_count = 2\n"));
+        }, "loot table diverged drop_count");
+        expectRefused(() -> {
+            LootTable.fromFile(tmpLoot("mob a\n  hp = 1\n"
+                    + "  drop = example1.content:my_gem\n" + MOB_POLICY
+                    + "mob a\n  hp = 1\n"
                     + "  drop = example1.content:my_gem\n" + MOB_POLICY));
-        }, "loot table multi mob");
+        }, "loot table dupe mob");
         expectRefused(() -> {
             LootTable.fromFile(tmpLoot("mob nodrop\n  hp = 1\n"
                     + MOB_POLICY));
@@ -1442,26 +1467,48 @@ public final class ExampleCheck {
             }, "loot table null path"),
         });
 
-        // --- combat table: content weakspots + reach, never defaulted ---
+        // --- combat table: two-mob owned seal, shared head bone ---
         final CombatTable combat =
                 CombatTable.fromFile("content/owned.matou");
-        check(combat.weakspots().size() == 1
-                && combat.weakspots().get("head") != null
-                && combat.weakspots().get("head").floatValue() == 2.0F,
-                "combat table wires head 2x");
-        check(combat.reach() == 4.0d, "combat table wires authorial reach");
+        check(new ArrayList<String>(combat.mobs()).equals(
+                Arrays.asList("my_beast", "my_brute")),
+                "combat owned seals both mobs in file order");
+        check(combat.weakspots("my_beast").size() == 1
+                && combat.weakspots("my_beast").get("head") != null
+                && combat.weakspots("my_beast").get("head").floatValue()
+                        == 2.0F,
+                "combat owned wires beast head 2x");
+        check(combat.weakspots("my_brute").size() == 1
+                && combat.weakspots("my_brute").get("head") != null
+                && combat.weakspots("my_brute").get("head").floatValue()
+                        == 3.0F,
+                "combat owned wires brute head 3x");
+        check(combat.reach("my_beast") == 4.0d
+                && combat.reach("my_brute") == 5.0d,
+                "combat owned wires per-mob reach");
+        expectRefused(() -> {
+            combat.weakspots();
+        }, "combat owned sole view on multi");
+        expectRefused(() -> {
+            combat.reach();
+        }, "combat owned sole reach on multi");
         try {
-            combat.weakspots().put("head", Float.valueOf(3.0F));
+            combat.weakspots("my_beast").put("head",
+                    Float.valueOf(3.0F));
             check(false, "combat table immutable");
         } catch (UnsupportedOperationException e) {
             System.out.println("ok example1 : combat table immutable");
         }
         final String oneBeast = tmpCombat("mob my_beast\n  reach = 4.0\n\n"
                 + "weakspot head\n  mult = 2.0\n");
-        check(CombatTable.fromFile(oneBeast).weakspots().equals(
-                combat.weakspots()), "combat table wires like owned");
-        check(CombatTable.fromFile(oneBeast).reach() == combat.reach(),
-                "combat table wires reach like owned");
+        check(CombatTable.fromFile(oneBeast).weakspots().size() == 1
+                && CombatTable.fromFile(oneBeast).weakspots().get("head")
+                        != null
+                && CombatTable.fromFile(oneBeast).weakspots().get("head")
+                        .floatValue() == 2.0F,
+                "combat single wires head 2x");
+        check(CombatTable.fromFile(oneBeast).reach() == 4.0d,
+                "combat single wires reach like owned beast");
         expectRefused(() -> {
             CombatTable.fromFile(tmpCombat(""));
         }, "combat table empty mob");
@@ -1501,15 +1548,17 @@ public final class ExampleCheck {
 
         // --- combat table per-mob (SYNTAX-V6 join): each weakspot funds
         // one (mob, bone); the legacy views serve the sole sealed mob ---
-        check(combat.mobs().equals(
+        final CombatTable singleCombat = CombatTable.fromFile(oneBeast);
+        check(singleCombat.mobs().equals(
                 Collections.singleton("my_beast")),
                 "combat table mobs single");
-        check(combat.weakspots("my_beast").equals(combat.weakspots()),
+        check(singleCombat.weakspots("my_beast").equals(
+                singleCombat.weakspots()),
                 "combat per-mob equals legacy weakspots");
-        check(combat.reach("my_beast") == combat.reach(),
+        check(singleCombat.reach("my_beast") == singleCombat.reach(),
                 "combat per-mob equals legacy reach");
         try {
-            combat.mobs().add("my_brute");
+            combat.mobs().add("my_ghost");
             check(false, "combat mobs immutable");
         } catch (UnsupportedOperationException e) {
             System.out.println("ok example1 : combat mobs immutable");
@@ -1534,9 +1583,10 @@ public final class ExampleCheck {
         check(v5single.mobs().equals(
                 Collections.singleton("my_beast")),
                 "combat v5 single seals single");
-        check(v5single.weakspots().equals(combat.weakspots())
-                && v5single.reach() == combat.reach(),
-                "combat v5 single wires like owned");
+        check(v5single.weakspots().size() == 1
+                && v5single.weakspots().get("head").floatValue() == 2.0F
+                && v5single.reach() == 4.0d,
+                "combat v5 single wires head 2x reach 4.0");
         expectRefused(() -> {
             CombatTable.fromFile(tmpCombat("mob a\n  reach = 4.0\n\n"
                     + "mob b\n  reach = 4.0\n\n"
@@ -1723,36 +1773,112 @@ public final class ExampleCheck {
     }
 
     static void spawnSection() {
-        // --- spawn table: single mob ref from owned content ---
+        // --- spawn table: two-mob owned seal, file order ---
         final SpawnTable table =
                 SpawnTable.fromFile("content/owned.matou");
-        check("example1.content:my_beast".equals(table.mob()),
-                "spawn table wires beast");
-        check(table.hp() == 20L, "spawn table wires beast hp");
-        check(table.cap() == 4L, "spawn table wires authorial cap");
-        check(table.budget() == 1L, "spawn table wires authorial budget");
-        check(table.yMin() == 66L && table.yMax() == 68L,
-                "spawn table wires authorial y band");
+        check(new ArrayList<String>(table.mobs()).equals(
+                Arrays.asList("my_beast", "my_brute")),
+                "spawn owned seals both mobs in file order");
+        check(table.hp("my_beast") == 20L
+                && table.hp("my_brute") == 30L,
+                "spawn owned wires per-mob hp");
+        check(table.cap("my_beast") == 4L
+                && table.cap("my_brute") == 4L,
+                "spawn owned wires per-mob cap");
+        check(table.budget("my_beast") == 1L
+                && table.budget("my_brute") == 1L,
+                "spawn owned wires per-mob budget");
+        check(table.yMin("my_beast") == 66L
+                && table.yMax("my_beast") == 68L
+                && table.yMin("my_brute") == 66L
+                && table.yMax("my_brute") == 68L,
+                "spawn owned wires per-mob y band");
+        try {
+            table.mobs().add("my_ghost");
+            check(false, "spawn mobs immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : spawn mobs immutable");
+        }
+        checkNullRefused(new Refusal[]{
+            new Refusal(() -> {
+                table.hp(null);
+            }, "spawn per-mob null hp mob"),
+            new Refusal(() -> {
+                table.cap(null);
+            }, "spawn per-mob null cap mob"),
+            new Refusal(() -> {
+                table.budget(null);
+            }, "spawn per-mob null budget mob"),
+            new Refusal(() -> {
+                table.yMin(null);
+            }, "spawn per-mob null yMin mob"),
+            new Refusal(() -> {
+                table.yMax(null);
+            }, "spawn per-mob null yMax mob"),
+        });
+        expectRefused(() -> {
+            table.hp("nope");
+        }, "spawn per-mob unknown hp mob");
+        expectRefused(() -> {
+            table.cap("nope");
+        }, "spawn per-mob unknown cap mob");
+        expectRefused(() -> {
+            table.budget("nope");
+        }, "spawn per-mob unknown budget mob");
+        expectRefused(() -> {
+            table.yMin("nope");
+        }, "spawn per-mob unknown yMin mob");
+        expectRefused(() -> {
+            table.yMax("nope");
+        }, "spawn per-mob unknown yMax mob");
+        expectRefused(() -> {
+            table.mob();
+        }, "spawn owned sole mob on multi");
+        expectRefused(() -> {
+            table.hp();
+        }, "spawn owned sole hp on multi");
+        expectRefused(() -> {
+            table.cap();
+        }, "spawn owned sole cap on multi");
+        expectRefused(() -> {
+            table.budget();
+        }, "spawn owned sole budget on multi");
+        expectRefused(() -> {
+            table.yMin();
+        }, "spawn owned sole yMin on multi");
+        expectRefused(() -> {
+            table.yMax();
+        }, "spawn owned sole yMax on multi");
         final String oneMob = tmpLoot("mob my_beast\n  hp = 20\n"
                 + "  drop = example1.content:my_gem\n" + MOB_POLICY);
-        check(SpawnTable.fromFile(oneMob).mob().equals(table.mob()),
-                "spawn table wires like owned");
-        check(SpawnTable.fromFile(oneMob).hp() == 20L,
-                "spawn table wires hp like owned");
-        check(SpawnTable.fromFile(oneMob).cap() == table.cap()
-                && SpawnTable.fromFile(oneMob).budget() == table.budget()
-                && SpawnTable.fromFile(oneMob).yMin() == table.yMin()
-                && SpawnTable.fromFile(oneMob).yMax() == table.yMax(),
-                "spawn table wires policy like owned");
-        expectRefused(() -> {
-            SpawnTable.fromFile(tmpLoot(""));
-        }, "spawn table empty mob");
+        final SpawnTable single = SpawnTable.fromFile(oneMob);
+        check(single.mobs().equals(
+                Collections.singleton("my_beast")),
+                "spawn single seals single");
+        check("example1.content:my_beast".equals(single.mob()),
+                "spawn single wires beast");
+        check(single.hp() == 20L
+                && single.hp("my_beast") == single.hp(),
+                "spawn single wires hp like owned beast");
+        check(single.cap() == table.cap("my_beast")
+                && single.budget() == table.budget("my_beast")
+                && single.yMin() == table.yMin("my_beast")
+                && single.yMax() == table.yMax("my_beast"),
+                "spawn single wires policy like owned beast");
+        final String twoMob = tmpLoot("mob my_beast\n  hp = 20\n"
+                + "  drop = example1.content:my_gem\n" + MOB_POLICY
+                + "mob my_brute\n  hp = 30\n"
+                + "  drop = example1.content:my_gem\n" + MOB_POLICY);
+        check(new ArrayList<String>(
+                SpawnTable.fromFile(twoMob).mobs()).equals(
+                Arrays.asList("my_beast", "my_brute")),
+                "spawn tmp two-mob seals in file order");
         expectRefused(() -> {
             SpawnTable.fromFile(tmpLoot("mob a\n  hp = 1\n"
                     + "  drop = example1.content:my_gem\n" + MOB_POLICY
-                    + "mob b\n  hp = 2\n"
+                    + "mob a\n  hp = 1\n"
                     + "  drop = example1.content:my_gem\n" + MOB_POLICY));
-        }, "spawn table multi mob");
+        }, "spawn table dupe mob");
         expectRefused(() -> {
             SpawnTable.fromFile(tmpLoot("mob nohp\n"
                     + "  drop = example1.content:my_gem\n" + MOB_POLICY));
@@ -1796,7 +1922,7 @@ public final class ExampleCheck {
 
         // --- spawn job: pure, budgeted, capped, y-banded ---
         final SpawnJob spawn = new SpawnJob();
-        final String mob = table.mob();
+        final String mob = single.mob();
         Map<String, String> empty = new LinkedHashMap<String, String>();
         Map<MatouId, Object> spawnStates = new HashMap<MatouId, Object>();
         spawnStates.put(SpawnJob.CENSUS, empty);
@@ -1951,6 +2077,171 @@ public final class ExampleCheck {
                 spawn.decide(new Snapshot(7L, s));
             }, "spawn negative census id"),
         });
+
+        // --- spawn job per-mob: two mobs decide in table order ---
+        final String brute = "example1.content:my_brute";
+        final List<String> twoTable = Arrays.asList(mob, brute);
+        final Map<String, Long> twoCaps =
+                new LinkedHashMap<String, Long>();
+        twoCaps.put(mob, Long.valueOf(4L));
+        twoCaps.put(brute, Long.valueOf(4L));
+        final Map<String, Long> twoBudgets =
+                new LinkedHashMap<String, Long>();
+        twoBudgets.put(mob, Long.valueOf(1L));
+        twoBudgets.put(brute, Long.valueOf(1L));
+        final Map<String, List<Long>> twoBands =
+                new LinkedHashMap<String, List<Long>>();
+        twoBands.put(mob, Arrays.asList(Long.valueOf(66L),
+                Long.valueOf(68L)));
+        twoBands.put(brute, Arrays.asList(Long.valueOf(66L),
+                Long.valueOf(68L)));
+        final Map<String, String> mixed =
+                new LinkedHashMap<String, String>();
+        mixed.put("11", "1,66,2:" + mob);
+        mixed.put("23", "3,67,4:" + brute);
+        mixed.put("37", "5,68,6:" + brute);
+        Map<MatouId, Object> twoStates = new HashMap<MatouId, Object>();
+        twoStates.put(SpawnJob.CENSUS, mixed);
+        twoStates.put(SpawnJob.TABLE, twoTable);
+        twoStates.put(SpawnJob.CAP, twoCaps);
+        twoStates.put(SpawnJob.BUDGET, twoBudgets);
+        twoStates.put(SpawnJob.Y, twoBands);
+        List<String> twoFirst =
+                spawn.decide(new Snapshot(7L, twoStates));
+        check(twoFirst.equals(spawn.decide(new Snapshot(7L, twoStates))),
+                "spawn per-mob pure");
+        check(twoFirst.size() == 2, "spawn per-mob room 3+2 lands 2");
+        check(twoFirst.get(0).endsWith(":" + mob)
+                && twoFirst.get(1).endsWith(":" + brute),
+                "spawn per-mob decides in table order");
+        boolean twoShaped = true;
+        boolean twoBanded = true;
+        for (String cell : twoFirst) {
+            twoShaped &= cell.matches("[0-9]+,[0-9]+,[0-9]+:"
+                    + "example1\\.content:(my_beast|my_brute)");
+            String[] parts = cell.split(":")[0].split(",");
+            int x = Integer.parseInt(parts[0]);
+            int y = Integer.parseInt(parts[1]);
+            int z = Integer.parseInt(parts[2]);
+            twoBanded &= (x >= 0 && x < 16 && z >= 0 && z < 16
+                    && y >= 66 && y <= 68);
+        }
+        check(twoShaped, "spawn per-mob cells shaped");
+        check(twoBanded, "spawn per-mob pads in grid x banded y");
+        Map<MatouId, Object> beastSolo =
+                new HashMap<MatouId, Object>();
+        Map<String, String> oneBeastCensus =
+                new LinkedHashMap<String, String>();
+        oneBeastCensus.put("11", "1,66,2:" + mob);
+        beastSolo.put(SpawnJob.CENSUS, oneBeastCensus);
+        beastSolo.put(SpawnJob.TABLE,
+                Collections.singletonList(mob));
+        beastSolo.put(SpawnJob.CAP,
+                Collections.singletonMap(mob, Long.valueOf(4L)));
+        beastSolo.put(SpawnJob.BUDGET,
+                Collections.singletonMap(mob, Long.valueOf(1L)));
+        beastSolo.put(SpawnJob.Y, Collections.singletonMap(mob,
+                Arrays.asList(Long.valueOf(66L), Long.valueOf(68L))));
+        check(spawn.decide(new Snapshot(7L, beastSolo)).equals(
+                Collections.singletonList(twoFirst.get(0))),
+                "spawn per-mob beast pad equals sole-beast pad");
+        Map<MatouId, Object> bruteSolo =
+                new HashMap<MatouId, Object>();
+        bruteSolo.put(SpawnJob.CENSUS,
+                new LinkedHashMap<String, String>());
+        bruteSolo.put(SpawnJob.TABLE,
+                Collections.singletonList(brute));
+        bruteSolo.put(SpawnJob.CAP,
+                Collections.singletonMap(brute, Long.valueOf(4L)));
+        bruteSolo.put(SpawnJob.BUDGET,
+                Collections.singletonMap(brute, Long.valueOf(1L)));
+        bruteSolo.put(SpawnJob.Y, Collections.singletonMap(brute,
+                Arrays.asList(Long.valueOf(66L), Long.valueOf(68L))));
+        check(spawn.decide(new Snapshot(7L, bruteSolo)).size() == 1
+                && spawn.decide(new Snapshot(7L, bruteSolo)).get(0)
+                        .endsWith(":" + brute),
+                "spawn per-mob brute lands its own pad");
+
+        // --- spawn back-compat: one-mob new-shape seals decide exactly
+        // the pre-tranche cells ---
+        Map<MatouId, Object> soloStates =
+                new HashMap<MatouId, Object>(spawnStates);
+        soloStates.put(SpawnJob.TABLE,
+                Collections.singletonList(mob));
+        soloStates.put(SpawnJob.CAP,
+                Collections.singletonMap(mob, Long.valueOf(4L)));
+        soloStates.put(SpawnJob.BUDGET,
+                Collections.singletonMap(mob, Long.valueOf(1L)));
+        soloStates.put(SpawnJob.Y, Collections.singletonMap(mob,
+                Arrays.asList(Long.valueOf(66L), Long.valueOf(68L))));
+        check(spawn.decide(new Snapshot(7L, soloStates)).equals(first),
+                "spawn one-mob new-shape decides identical cells");
+
+        expectRefused(() -> {
+            Map<MatouId, Object> s =
+                    new HashMap<MatouId, Object>(twoStates);
+            s.put(SpawnJob.TABLE, new ArrayList<String>());
+            spawn.decide(new Snapshot(7L, s));
+        }, "spawn empty table");
+        expectRefused(() -> {
+            Map<MatouId, Object> s =
+                    new HashMap<MatouId, Object>(twoStates);
+            s.put(SpawnJob.TABLE, Arrays.asList(mob, mob));
+            spawn.decide(new Snapshot(7L, s));
+        }, "spawn dupe table");
+        expectRefused(() -> {
+            Map<MatouId, Object> s =
+                    new HashMap<MatouId, Object>(twoStates);
+            s.put(SpawnJob.CAP, Long.valueOf(4L));
+            spawn.decide(new Snapshot(7L, s));
+        }, "spawn sole cap with multi table");
+        expectRefused(() -> {
+            Map<MatouId, Object> s =
+                    new HashMap<MatouId, Object>(twoStates);
+            Map<String, Long> shortCaps =
+                    new LinkedHashMap<String, Long>(twoCaps);
+            shortCaps.remove(brute);
+            s.put(SpawnJob.CAP, shortCaps);
+            spawn.decide(new Snapshot(7L, s));
+        }, "spawn cap missing mob");
+        expectRefused(() -> {
+            Map<MatouId, Object> s =
+                    new HashMap<MatouId, Object>(twoStates);
+            Map<String, Long> extraCaps =
+                    new LinkedHashMap<String, Long>(twoCaps);
+            extraCaps.put("example1.content:my_ghost",
+                    Long.valueOf(4L));
+            s.put(SpawnJob.CAP, extraCaps);
+            spawn.decide(new Snapshot(7L, s));
+        }, "spawn cap foreign mob");
+        expectRefused(() -> {
+            Map<MatouId, Object> s =
+                    new HashMap<MatouId, Object>(twoStates);
+            Map<String, Long> flat =
+                    new LinkedHashMap<String, Long>(twoBudgets);
+            flat.put(mob, Long.valueOf(0L));
+            s.put(SpawnJob.BUDGET, flat);
+            spawn.decide(new Snapshot(7L, s));
+        }, "spawn per-mob zero budget");
+        expectRefused(() -> {
+            Map<MatouId, Object> s =
+                    new HashMap<MatouId, Object>(twoStates);
+            Map<String, List<Long>> flip =
+                    new LinkedHashMap<String, List<Long>>(twoBands);
+            flip.put(mob, Arrays.asList(Long.valueOf(68L),
+                    Long.valueOf(66L)));
+            s.put(SpawnJob.Y, flip);
+            spawn.decide(new Snapshot(7L, s));
+        }, "spawn per-mob inverted y");
+        expectRefused(() -> {
+            Map<MatouId, Object> s =
+                    new HashMap<MatouId, Object>(twoStates);
+            Map<String, String> ghost =
+                    new LinkedHashMap<String, String>(mixed);
+            ghost.put("99", "9,67,9:example1.content:my_ghost");
+            s.put(SpawnJob.CENSUS, ghost);
+            spawn.decide(new Snapshot(7L, s));
+        }, "spawn per-mob foreign census");
     }
 
     static void vocabularySection() {
@@ -2010,27 +2301,83 @@ public final class ExampleCheck {
         check(!pack.lootOreKind().equals(pack.lootBeastKind()),
                 "pack policy kinds distinct");
         check(pack.lootCount() == 1L, "pack policy authorial count");
-        check("example1.content:my_beast".equals(pack.spawnMob()),
-                "pack policy spawn mob");
-        check(pack.spawnHp() == 20L, "pack policy spawn hp");
-        check(pack.spawnCap() == 4L, "pack policy spawn cap");
-        check(pack.spawnBudget() == 1L, "pack policy spawn budget");
-        check(pack.spawnYMin() == 66L && pack.spawnYMax() == 68L,
-                "pack policy spawn y band");
-        check(pack.combatWeakspots().size() == 1
-                && pack.combatWeakspots().get("head") != null
-                && pack.combatWeakspots().get("head").floatValue()
-                        == 2.0F,
-                "pack policy combat head 2x");
-        check(pack.combatReach() == 4.0d, "pack policy combat reach");
-        check(pack.combatMobs().equals(
-                Collections.singleton("my_beast")),
+        check(new ArrayList<String>(pack.spawnMobs()).equals(
+                Arrays.asList("my_beast", "my_brute")),
+                "pack policy spawn mobs in file order");
+        check(pack.spawnHp("my_beast") == 20L
+                && pack.spawnHp("my_brute") == 30L,
+                "pack policy spawn per-mob hp");
+        check(pack.spawnCap("my_beast") == 4L
+                && pack.spawnCap("my_brute") == 4L,
+                "pack policy spawn per-mob cap");
+        check(pack.spawnBudget("my_beast") == 1L
+                && pack.spawnBudget("my_brute") == 1L,
+                "pack policy spawn per-mob budget");
+        check(pack.spawnYMin("my_beast") == 66L
+                && pack.spawnYMax("my_beast") == 68L
+                && pack.spawnYMin("my_brute") == 66L
+                && pack.spawnYMax("my_brute") == 68L,
+                "pack policy spawn per-mob y band");
+        expectRefused(() -> {
+            pack.spawnMob();
+        }, "pack sole spawn mob on multi");
+        expectRefused(() -> {
+            pack.spawnHp();
+        }, "pack sole spawn hp on multi");
+        expectRefused(() -> {
+            pack.spawnCap();
+        }, "pack sole spawn cap on multi");
+        expectRefused(() -> {
+            pack.spawnBudget();
+        }, "pack sole spawn budget on multi");
+        expectRefused(() -> {
+            pack.spawnYMin();
+        }, "pack sole spawn yMin on multi");
+        expectRefused(() -> {
+            pack.spawnYMax();
+        }, "pack sole spawn yMax on multi");
+        checkNullRefused(new Refusal[]{
+            new Refusal(() -> {
+                pack.spawnHp(null);
+            }, "pack per-mob null hp mob"),
+            new Refusal(() -> {
+                pack.spawnCap(null);
+            }, "pack per-mob null cap mob"),
+            new Refusal(() -> {
+                pack.spawnBudget(null);
+            }, "pack per-mob null budget mob"),
+            new Refusal(() -> {
+                pack.spawnYMin(null);
+            }, "pack per-mob null yMin mob"),
+            new Refusal(() -> {
+                pack.spawnYMax(null);
+            }, "pack per-mob null yMax mob"),
+        });
+        expectRefused(() -> {
+            pack.spawnHp("nope");
+        }, "pack per-mob unknown hp mob");
+        expectRefused(() -> {
+            pack.spawnCap("nope");
+        }, "pack per-mob unknown cap mob");
+        check(pack.combatWeakspots("my_beast").size() == 1
+                && pack.combatWeakspots("my_beast").get("head") != null
+                && pack.combatWeakspots("my_beast").get("head").floatValue()
+                        == 2.0F
+                && pack.combatWeakspots("my_brute").get("head")
+                        .floatValue() == 3.0F,
+                "pack policy combat per-mob head");
+        check(pack.combatReach("my_beast") == 4.0d
+                && pack.combatReach("my_brute") == 5.0d,
+                "pack policy combat per-mob reach");
+        check(new ArrayList<String>(pack.combatMobs()).equals(
+                Arrays.asList("my_beast", "my_brute")),
                 "pack policy combat mobs");
-        check(pack.combatWeakspots("my_beast").equals(
-                pack.combatWeakspots()),
-                "pack per-mob equals legacy weakspots");
-        check(pack.combatReach("my_beast") == pack.combatReach(),
-                "pack per-mob equals legacy reach");
+        expectRefused(() -> {
+            pack.combatWeakspots();
+        }, "pack sole weakspots on multi");
+        expectRefused(() -> {
+            pack.combatReach();
+        }, "pack sole reach on multi");
         checkNullRefused(new Refusal[]{
             new Refusal(() -> {
                 pack.combatWeakspots(null);
@@ -2049,6 +2396,59 @@ public final class ExampleCheck {
                 "pack serves the loot job");
         check(pack.spawnJob() instanceof SpawnJob,
                 "pack serves the spawn job");
+        // Sole-mob views serve a single-mob pack (the pre-tranche shape).
+        final String singleOwned;
+        try {
+            String body = "syntax 5\nnamespace example1.content\n\n"
+                    + "genre Block : Data\nfield hardness : f32\n"
+                    + "field opaque : bool\n\n"
+                    + "genre Item : Data\nfield stack : u32\n"
+                    + "field label : string\n\n"
+                    + "genre Mob : Data\nfield hp : u32\n"
+                    + "field drop : item_ref\nfield cap : u32\n"
+                    + "field budget : u32\nfield y_min : u32\n"
+                    + "field y_max : u32\nfield drop_count : u32\n"
+                    + "field reach : f32\n\n"
+                    + "genre Weakspot : Data\nfield mult : f32\n\n"
+                    + "genre Feature : Data\nfield block : block_ref\n"
+                    + "field count : u32\n\n"
+                    + "block my_ore\n  hardness = 3.0\n"
+                    + "  opaque = true\n\n"
+                    + "item my_gem\n  stack = 64\n"
+                    + "  label = \"shiny\"\n\n"
+                    + "mob my_beast\n  hp = 20\n"
+                    + "  drop = example1.content:my_gem\n" + MOB_POLICY
+                    + "  reach = 4.0\n\n"
+                    + "weakspot head\n  mult = 2.0\n\n"
+                    + "feature my_vein\n"
+                    + "  block = example1.content:my_ore\n  count = 8\n";
+            java.nio.file.Path p =
+                    Files.createTempFile("singleowned", ".matou");
+            Files.write(p, body.getBytes(StandardCharsets.UTF_8));
+            p.toFile().deleteOnExit();
+            singleOwned = p.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("singleOwned: " + e.getMessage(),
+                    e);
+        }
+        final ExamplePack singlePack = ExamplePack.fromFiles(singleOwned,
+                "content/additive.matou");
+        check("example1.content:my_beast".equals(singlePack.spawnMob()),
+                "pack single sole spawn mob");
+        check(singlePack.spawnHp() == 20L
+                && singlePack.spawnCap() == 4L
+                && singlePack.spawnBudget() == 1L
+                && singlePack.spawnYMin() == 66L
+                && singlePack.spawnYMax() == 68L,
+                "pack single sole spawn policy");
+        check(singlePack.spawnMobs().equals(
+                Collections.singleton("my_beast"))
+                && singlePack.spawnHp("my_beast") == singlePack.spawnHp()
+                && singlePack.combatWeakspots("my_beast").equals(
+                        singlePack.combatWeakspots())
+                && singlePack.combatReach("my_beast")
+                        == singlePack.combatReach(),
+                "pack single per-mob equals sole");
         try {
             pack.lootDrops().put("ore", "example1.content:nope");
             check(false, "pack policy drops immutable");
@@ -2062,7 +2462,7 @@ public final class ExampleCheck {
         cfg.put("scatterFile", "content/additive.matou");
         ExamplePack viaCfg = new ExamplePack();
         viaCfg.configure(cfg);
-        check(viaCfg.spawnMob().equals(pack.spawnMob()),
+        check(viaCfg.spawnMobs().equals(pack.spawnMobs()),
                 "pack configure wires policy");
         check(viaCfg.lootDrops().equals(pack.lootDrops()),
                 "pack configure wires drops");
@@ -2080,12 +2480,27 @@ public final class ExampleCheck {
                 && structured.lootOreKind().equals(pack.lootOreKind())
                 && structured.lootBeastKind().equals(pack.lootBeastKind()),
                 "pack structured wires loot policy");
-        check(structured.spawnMob().equals(pack.spawnMob())
-                && structured.spawnHp() == pack.spawnHp()
-                && structured.spawnCap() == pack.spawnCap()
-                && structured.spawnBudget() == pack.spawnBudget()
-                && structured.spawnYMin() == pack.spawnYMin()
-                && structured.spawnYMax() == pack.spawnYMax(),
+        check(structured.spawnMobs().equals(pack.spawnMobs())
+                && structured.spawnHp("my_beast")
+                        == pack.spawnHp("my_beast")
+                && structured.spawnHp("my_brute")
+                        == pack.spawnHp("my_brute")
+                && structured.spawnCap("my_beast")
+                        == pack.spawnCap("my_beast")
+                && structured.spawnCap("my_brute")
+                        == pack.spawnCap("my_brute")
+                && structured.spawnBudget("my_beast")
+                        == pack.spawnBudget("my_beast")
+                && structured.spawnBudget("my_brute")
+                        == pack.spawnBudget("my_brute")
+                && structured.spawnYMin("my_beast")
+                        == pack.spawnYMin("my_beast")
+                && structured.spawnYMax("my_beast")
+                        == pack.spawnYMax("my_beast")
+                && structured.spawnYMin("my_brute")
+                        == pack.spawnYMin("my_brute")
+                && structured.spawnYMax("my_brute")
+                        == pack.spawnYMax("my_brute"),
                 "pack structured wires spawn policy");
         check(structured.lootJob() instanceof LootJob
                 && structured.spawnJob() instanceof SpawnJob,
@@ -2095,16 +2510,18 @@ public final class ExampleCheck {
         ExamplePack viaCfgS = new ExamplePack();
         viaCfgS.configure(cfgS);
         check(viaCfgS.lootDrops().equals(pack.lootDrops())
-                && viaCfgS.spawnMob().equals(pack.spawnMob()),
+                && viaCfgS.spawnMobs().equals(pack.spawnMobs()),
                 "pack configure+structure wires policy");
         final VeinPlaceJob plainVein = VeinPlaceJob.fromFile(
                 "content/vein.matou", "ore_vein");
         final ExamplePack veined =
                 ExamplePack.fromFiles(structured, plainVein);
         check(veined.lootDrops().equals(pack.lootDrops())
-                && veined.spawnMob().equals(pack.spawnMob())
-                && veined.combatWeakspots().equals(pack.combatWeakspots())
-                && veined.combatReach() == pack.combatReach(),
+                && veined.spawnMobs().equals(pack.spawnMobs())
+                && veined.combatWeakspots("my_beast").equals(
+                        pack.combatWeakspots("my_beast"))
+                && veined.combatReach("my_brute")
+                        == pack.combatReach("my_brute"),
                 "pack veined wires policy");
         final ExamplePack bare = new ExamplePack();
         final ExamplePack counts = new ExamplePack(8, 4);
@@ -2119,6 +2536,12 @@ public final class ExampleCheck {
             () -> { bare.spawnBudget(); },
             () -> { bare.spawnYMin(); },
             () -> { bare.spawnYMax(); },
+            () -> { bare.spawnMobs(); },
+            () -> { bare.spawnHp("my_beast"); },
+            () -> { bare.spawnCap("my_beast"); },
+            () -> { bare.spawnBudget("my_beast"); },
+            () -> { bare.spawnYMin("my_beast"); },
+            () -> { bare.spawnYMax("my_beast"); },
             () -> { bare.lootJob(); },
             () -> { bare.spawnJob(); },
             () -> { bare.combatWeakspots(); },

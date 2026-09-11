@@ -45,9 +45,23 @@ mob my_beast
   drop_count = 1
   reach = 4.0
 
+mob my_brute
+  hp = 30
+  drop = example1.content:my_gem
+  cap = 4
+  budget = 1
+  y_min = 66
+  y_max = 68
+  drop_count = 1
+  reach = 5.0
+
 weakspot head
   mult = 2.0
   mob = example1.content:my_beast
+
+weakspot head
+  mult = 3.0
+  mob = example1.content:my_brute
 
 feature my_vein
   block = example1.content:my_ore

@@ -9,14 +9,15 @@ import java.util.Set;
  * T4 pack-driven policy holder (hub
  * {@code decisions/SPI_STATE_VOCABULARY.md}, combat policy hub
  * {@code decisions/VIRTUAL_HITBOXES.md}): the sealed loot/spawn/combat
- * tables plus the seventeen {@code PolicyPack} accessors, out of
+ * tables plus the twenty-three {@code PolicyPack} accessors, out of
  * {@link ExamplePack}. The owned file seals all three tables at wire time
- * ({@link #fromFile} — single mob funds all three, the tables' own
- * multi/empty refusals propagate untouched); structure and vein files
- * never fund tables, so wired packs carry the holder by reference.
- * Config-independent packs (count fixtures, never wired to a file) hold
- * the unwired singleton ({@link #unwired}) and refuse loudly instead of
- * guessing numbers. Pure, Java 8, zero deps beyond matou-spi.
+ * ({@link #fromFile} — combat and spawn seal per mob, loot seals the
+ * agreed table, the tables' own empty/diverged refusals propagate
+ * untouched); structure and vein files never fund tables, so wired packs
+ * carry the holder by reference. Config-independent packs (count
+ * fixtures, never wired to a file) hold the unwired singleton
+ * ({@link #unwired}) and refuse loudly instead of guessing numbers.
+ * Pure, Java 8, zero deps beyond matou-spi.
  */
 public final class ExamplePolicy {
     private final LootTable loot;
@@ -38,7 +39,7 @@ public final class ExamplePolicy {
     /**
      * Seals all three tables from the owned content file once (parse-once,
      * beside the tables — never on the tick path). Loud on unreadable /
-     * zero or several mobs — never defaulted.
+     * zero mobs / divergent loot — never defaulted.
      */
     public static ExamplePolicy fromFile(String ownedPath) {
         return new ExamplePolicy(LootTable.fromFile(ownedPath),
@@ -119,6 +120,30 @@ public final class ExamplePolicy {
 
     public long spawnYMax() {
         return spawn().yMax();
+    }
+
+    public Set<String> spawnMobs() {
+        return spawn().mobs();
+    }
+
+    public long spawnHp(String mob) {
+        return spawn().hp(mob);
+    }
+
+    public long spawnCap(String mob) {
+        return spawn().cap(mob);
+    }
+
+    public long spawnBudget(String mob) {
+        return spawn().budget(mob);
+    }
+
+    public long spawnYMin(String mob) {
+        return spawn().yMin(mob);
+    }
+
+    public long spawnYMax(String mob) {
+        return spawn().yMax(mob);
     }
 
     public Map<String, Float> combatWeakspots() {

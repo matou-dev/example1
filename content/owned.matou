@@ -1,4 +1,4 @@
-syntax 5
+syntax 6
 namespace example1.content
 
 genre Block : Data
@@ -21,6 +21,7 @@ field reach : f32
 
 genre Weakspot : Data
 field mult : f32
+field mob : mob_ref
 
 genre Feature : Data
 field block : block_ref
@@ -46,6 +47,7 @@ mob my_beast
 
 weakspot head
   mult = 2.0
+  mob = example1.content:my_beast
 
 feature my_vein
   block = example1.content:my_ore

@@ -3,12 +3,13 @@ package fr.iamacat.example1;
 import fr.iamacat.spi.MatouJob;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * T4 pack-driven policy holder (hub
  * {@code decisions/SPI_STATE_VOCABULARY.md}, combat policy hub
  * {@code decisions/VIRTUAL_HITBOXES.md}): the sealed loot/spawn/combat
- * tables plus the fourteen {@code PolicyPack} accessors, out of
+ * tables plus the seventeen {@code PolicyPack} accessors, out of
  * {@link ExamplePack}. The owned file seals all three tables at wire time
  * ({@link #fromFile} — single mob funds all three, the tables' own
  * multi/empty refusals propagate untouched); structure and vein files
@@ -126,6 +127,18 @@ public final class ExamplePolicy {
 
     public double combatReach() {
         return combat().reach();
+    }
+
+    public Set<String> combatMobs() {
+        return combat().mobs();
+    }
+
+    public Map<String, Float> combatWeakspots(String mob) {
+        return combat().weakspots(mob);
+    }
+
+    public double combatReach(String mob) {
+        return combat().reach(mob);
     }
 
     public MatouJob<List<String>> lootJob() {

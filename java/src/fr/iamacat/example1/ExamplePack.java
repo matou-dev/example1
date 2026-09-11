@@ -340,6 +340,13 @@ public final class ExamplePack implements ConfigurablePack, PolicyPack {
         return policy.combatWeakspots();
     }
     public double combatReach() { return policy.combatReach(); }
+    public Set<String> combatMobs() { return policy.combatMobs(); }
+    public Map<String, Float> combatWeakspots(String mob) {
+        return policy.combatWeakspots(mob);
+    }
+    public double combatReach(String mob) {
+        return policy.combatReach(mob);
+    }
     public MatouJob<List<String>> lootJob() { return policy.lootJob(); }
     public MatouJob<List<String>> spawnJob() { return policy.spawnJob(); }
 }

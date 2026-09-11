@@ -139,25 +139,59 @@ public final class ExampleCheck {
     }
 
     /**
+     * Writes a temp content file with the given header plus the given
+     * stanzas (combat refusal fixtures must not live in {@code content/}:
+     * every file there must stay dual-parsable and funded).
+     */
+    private static String tmpCombatVer(String header, String stanza) {
+        try {
+            java.nio.file.Path p =
+                    Files.createTempFile("combattable", ".matou");
+            Files.write(p, (header + stanza)
+                    .getBytes(StandardCharsets.UTF_8));
+            p.toFile().deleteOnExit();
+            return p.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("tmpCombat: " + e.getMessage(), e);
+        }
+    }
+
+    /**
      * Writes a temp content file with a syntax-5 mob+weakspot header plus
      * the given stanzas (combat refusal fixtures must not live in
      * {@code content/}: every file there must stay dual-parsable and
      * single-mob with a funded table).
      */
     private static String tmpCombat(String stanza) {
-        String body = "syntax 5\nnamespace example1.content\n\n"
+        return tmpCombatVer("syntax 5\nnamespace example1.content\n\n"
                 + "genre Mob : Data\nfield reach : f32\n\n"
-                + "genre Weakspot : Data\nfield mult : f32\n\n"
-                + stanza;
-        try {
-            java.nio.file.Path p =
-                    Files.createTempFile("combattable", ".matou");
-            Files.write(p, body.getBytes(StandardCharsets.UTF_8));
-            p.toFile().deleteOnExit();
-            return p.toString();
-        } catch (Exception e) {
-            throw new RuntimeException("tmpCombat: " + e.getMessage(), e);
-        }
+                + "genre Weakspot : Data\nfield mult : f32\n\n",
+                stanza);
+    }
+
+    /**
+     * Writes a temp content file with a syntax-6 mob+weakspot header
+     * (weakspots carry {@code mob : mob_ref}) plus the given stanzas.
+     */
+    private static String tmpCombat6(String stanza) {
+        return tmpCombatVer("syntax 6\nnamespace example1.content\n\n"
+                + "genre Mob : Data\nfield reach : f32\n\n"
+                + "genre Weakspot : Data\nfield mult : f32\n"
+                + "field mob : mob_ref\n\n",
+                stanza);
+    }
+
+    /**
+     * Writes a temp content file with a syntax-5 mob+weakspot header
+     * whose weakspots declare {@code mob : mob_ref} (the decide-time
+     * {@code :mob in v5} fixture — the parser stays syntactic).
+     */
+    private static String tmpCombat5Mob(String stanza) {
+        return tmpCombatVer("syntax 5\nnamespace example1.content\n\n"
+                + "genre Mob : Data\nfield reach : f32\n\n"
+                + "genre Weakspot : Data\nfield mult : f32\n"
+                + "field mob : mob_ref\n\n",
+                stanza);
     }
 
     /**
@@ -1465,6 +1499,125 @@ public final class ExampleCheck {
             }, "combat table null path"),
         });
 
+        // --- combat table per-mob (SYNTAX-V6 join): each weakspot funds
+        // one (mob, bone); the legacy views serve the sole sealed mob ---
+        check(combat.mobs().equals(
+                Collections.singleton("my_beast")),
+                "combat table mobs single");
+        check(combat.weakspots("my_beast").equals(combat.weakspots()),
+                "combat per-mob equals legacy weakspots");
+        check(combat.reach("my_beast") == combat.reach(),
+                "combat per-mob equals legacy reach");
+        try {
+            combat.mobs().add("my_brute");
+            check(false, "combat mobs immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : combat mobs immutable");
+        }
+        checkNullRefused(new Refusal[]{
+            new Refusal(() -> {
+                combat.weakspots(null);
+            }, "combat per-mob null mob"),
+            new Refusal(() -> {
+                combat.reach(null);
+            }, "combat per-mob null reach mob"),
+        });
+        expectRefused(() -> {
+            combat.weakspots("nope");
+        }, "combat per-mob unknown mob");
+        expectRefused(() -> {
+            combat.reach("nope");
+        }, "combat per-mob unknown reach mob");
+        final CombatTable v5single = CombatTable.fromFile(
+                tmpCombat("mob my_beast\n  reach = 4.0\n\n"
+                        + "weakspot head\n  mult = 2.0\n"));
+        check(v5single.mobs().equals(
+                Collections.singleton("my_beast")),
+                "combat v5 single seals single");
+        check(v5single.weakspots().equals(combat.weakspots())
+                && v5single.reach() == combat.reach(),
+                "combat v5 single wires like owned");
+        expectRefused(() -> {
+            CombatTable.fromFile(tmpCombat("mob a\n  reach = 4.0\n\n"
+                    + "mob b\n  reach = 4.0\n\n"
+                    + "weakspot head\n  mult = 2.0\n"));
+        }, "combat v5 multi mob");
+        expectRefused(() -> {
+            CombatTable.fromFile(tmpCombat5Mob(
+                    "mob my_beast\n  reach = 4.0\n\n"
+                    + "weakspot head\n  mult = 2.0\n"
+                    + "  mob = example1.content:my_beast\n"));
+        }, "combat v5 weakspot with mob");
+        final CombatTable two = CombatTable.fromFile(tmpCombat6(
+                "mob my_beast\n  reach = 4.0\n\n"
+                + "mob my_brute\n  reach = 5.0\n\n"
+                + "weakspot head\n  mult = 2.0\n"
+                + "  mob = example1.content:my_beast\n\n"
+                + "weakspot head\n  mult = 3.0\n"
+                + "  mob = example1.content:my_brute\n\n"
+                + "weakspot arm\n  mult = 1.0\n"
+                + "  mob = example1.content:my_brute\n"));
+        check(two.mobs().size() == 2
+                && two.mobs().contains("my_beast")
+                && two.mobs().contains("my_brute"),
+                "combat v6 two-mob seals both");
+        check(two.weakspots("my_beast").size() == 1
+                && two.weakspots("my_beast").get("head") != null
+                && two.weakspots("my_beast").get("head").floatValue()
+                        == 2.0F,
+                "combat v6 beast head 2x");
+        check(two.weakspots("my_brute").size() == 2
+                && two.weakspots("my_brute").get("head") != null
+                && two.weakspots("my_brute").get("head").floatValue()
+                        == 3.0F
+                && two.weakspots("my_brute").get("arm") != null
+                && two.weakspots("my_brute").get("arm").floatValue()
+                        == 1.0F,
+                "combat v6 brute head 3x arm 1x");
+        check(two.reach("my_beast") == 4.0d
+                && two.reach("my_brute") == 5.0d,
+                "combat v6 per-mob reach");
+        expectRefused(() -> {
+            two.weakspots();
+        }, "combat v6 sole view on multi");
+        expectRefused(() -> {
+            two.reach();
+        }, "combat v6 sole reach on multi");
+        expectRefused(() -> {
+            CombatTable.fromFile(tmpCombatVer(
+                    "syntax 6\nnamespace example1.content\n\n"
+                    + "genre Mob : Data\nfield reach : f32\n\n"
+                    + "genre Weakspot : Data\nfield mult : f32\n\n",
+                    "mob my_beast\n  reach = 4.0\n\n"
+                    + "weakspot head\n  mult = 2.0\n"));
+        }, "combat v6 missing mob");
+        expectRefused(() -> {
+            CombatTable.fromFile(tmpCombatVer(
+                    "syntax 6\nnamespace example1.content\n\n"
+                    + "from other.ns use my_ghost\n\n"
+                    + "genre Mob : Data\nfield reach : f32\n\n"
+                    + "genre Weakspot : Data\nfield mult : f32\n"
+                    + "field mob : mob_ref\n\n",
+                    "mob my_beast\n  reach = 4.0\n\n"
+                    + "weakspot head\n  mult = 2.0\n"
+                    + "  mob = other.ns:my_ghost\n"));
+        }, "combat v6 unknown mob");
+        expectRefused(() -> {
+            CombatTable.fromFile(tmpCombat6(
+                    "weakspot head\n  mult = 2.0\n"
+                    + "  mob = example1.content:my_beast\n\n"
+                    + "mob my_beast\n  reach = 4.0\n\n"
+                    + "mob my_brute\n  reach = 5.0\n"));
+        }, "combat v6 lonely mob");
+        expectRefused(() -> {
+            CombatTable.fromFile(tmpCombat6(
+                    "mob my_beast\n  reach = 4.0\n\n"
+                    + "weakspot head\n  mult = 2.0\n"
+                    + "  mob = example1.content:my_beast\n\n"
+                    + "weakspot head\n  mult = 1.5\n"
+                    + "  mob = example1.content:my_beast\n"));
+        }, "combat v6 dupe mob bone");
+
         // --- loot job: pure, immediate, content refs out ---
         final LootJob loot = new LootJob();
         Map<String, Long> harvest = new LinkedHashMap<String, Long>();
@@ -1870,6 +2023,28 @@ public final class ExampleCheck {
                         == 2.0F,
                 "pack policy combat head 2x");
         check(pack.combatReach() == 4.0d, "pack policy combat reach");
+        check(pack.combatMobs().equals(
+                Collections.singleton("my_beast")),
+                "pack policy combat mobs");
+        check(pack.combatWeakspots("my_beast").equals(
+                pack.combatWeakspots()),
+                "pack per-mob equals legacy weakspots");
+        check(pack.combatReach("my_beast") == pack.combatReach(),
+                "pack per-mob equals legacy reach");
+        checkNullRefused(new Refusal[]{
+            new Refusal(() -> {
+                pack.combatWeakspots(null);
+            }, "pack per-mob null mob"),
+            new Refusal(() -> {
+                pack.combatReach(null);
+            }, "pack per-mob null reach mob"),
+        });
+        expectRefused(() -> {
+            pack.combatWeakspots("nope");
+        }, "pack per-mob unknown mob");
+        expectRefused(() -> {
+            pack.combatReach("nope");
+        }, "pack per-mob unknown reach mob");
         check(pack.lootJob() instanceof LootJob,
                 "pack serves the loot job");
         check(pack.spawnJob() instanceof SpawnJob,
@@ -1948,10 +2123,15 @@ public final class ExampleCheck {
             () -> { bare.spawnJob(); },
             () -> { bare.combatWeakspots(); },
             () -> { bare.combatReach(); },
+            () -> { bare.combatMobs(); },
+            () -> { bare.combatWeakspots("my_beast"); },
+            () -> { bare.combatReach("my_beast"); },
             () -> { counts.lootDrops(); },
             () -> { counts.spawnMob(); },
             () -> { counts.spawnJob(); },
             () -> { counts.combatReach(); },
+            () -> { counts.combatMobs(); },
+            () -> { counts.combatWeakspots("my_beast"); },
         };
         for (Runnable probe : unwired) {
             try {

@@ -330,6 +330,12 @@ public final class ExamplePack implements ConfigurablePack, PolicyPack {
     public String lootOreKind() { return policy.lootOreKind(); }
     public String lootBeastKind() { return policy.lootBeastKind(); }
     public long lootCount() { return policy.lootCount(); }
+    public Set<String> lootMobs() { return policy.lootMobs(); }
+    public String lootDrop(String mob) { return policy.lootDrop(mob); }
+    public String lootBeastKind(String mob) {
+        return policy.lootBeastKind(mob);
+    }
+    public long lootCount(String mob) { return policy.lootCount(mob); }
     public String spawnMob() { return policy.spawnMob(); }
     public long spawnHp() { return policy.spawnHp(); }
     public long spawnCap() { return policy.spawnCap(); }

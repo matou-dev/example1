@@ -993,13 +993,18 @@ public final class ExampleCheck {
         // --- itemspec: registration source, parse-once from owned ---
         List<ItemSpec> itemSpecs =
                 ItemSpec.fromFile("content/owned.matou");
-        check(itemSpecs.size() == 1, "itemspec count 1");
+        check(itemSpecs.size() == 2, "itemspec count 2");
         ItemSpec gem = itemSpecs.get(0);
         check(gem.namespace().equals("example1.content"),
                 "itemspec namespace");
         check(gem.name().equals("my_gem"), "itemspec name");
         check(gem.stack() == 64, "itemspec stack");
         check(gem.label().equals("shiny"), "itemspec label");
+        ItemSpec brute = itemSpecs.get(1);
+        check(brute.namespace().equals("example1.content")
+                && brute.name().equals("my_brute_gem")
+                && brute.stack() == 64 && brute.label().equals("brute"),
+                "itemspec brute gem in file order");
         check(ItemSpec.fromFile("content/additive.matou").isEmpty(),
                 "itemspec no items is empty");
         try {
@@ -1388,27 +1393,97 @@ public final class ExampleCheck {
     }
 
     static void lootSection() {
-        // --- loot table: single mob funds both kinds from owned content ---
+        // --- loot table: owned content seals distinct per-mob drops ---
         final LootTable table =
                 LootTable.fromFile("content/owned.matou");
-        check(table.drops().size() == 2, "loot table 2 kinds");
-        check("example1.content:my_gem".equals(
-                table.drops().get(LootJob.ORE)), "loot ore pays gem");
-        check("example1.content:my_gem".equals(
-                table.drops().get(LootJob.BEAST)), "loot beast pays gem");
-        check(table.count() == 1L, "loot table wires authorial count");
+        check(new ArrayList<String>(table.mobs()).equals(
+                Arrays.asList("my_beast", "my_brute")),
+                "loot owned seals both mobs in file order");
+        check("example1.content:my_gem".equals(table.drop("my_beast"))
+                && "example1.content:my_brute_gem".equals(
+                        table.drop("my_brute")),
+                "loot owned wires distinct per-mob drops");
+        check(table.count("my_beast") == 1L
+                && table.count("my_brute") == 2L,
+                "loot owned wires distinct per-mob counts");
+        Map<String, String> kinds = table.dropsPerKind();
+        check(kinds.size() == 3
+                && "example1.content:my_gem".equals(
+                        kinds.get(LootJob.ORE))
+                && "example1.content:my_gem".equals(kinds.get(
+                        LootJob.beastKind("my_beast")))
+                && "example1.content:my_brute_gem".equals(kinds.get(
+                        LootJob.beastKind("my_brute"))),
+                "loot kinds pay ore-first plus one beast kind per mob");
+        Map<String, Long> kindCounts = table.countsPerKind();
+        check(kindCounts.size() == 3
+                && kindCounts.get(LootJob.ORE).longValue() == 1L
+                && kindCounts.get(LootJob.beastKind("my_beast"))
+                        .longValue() == 1L
+                && kindCounts.get(LootJob.beastKind("my_brute"))
+                        .longValue() == 2L,
+                "loot kind counts ride one entry per kind");
+        check(LootJob.beastKind("my_beast").equals("beast.my_beast"),
+                "loot beast kind joins mob once");
         try {
-            table.drops().put("ore", "example1.content:nope");
+            table.dropsPerKind().put("ore", "example1.content:nope");
             check(false, "loot table immutable");
         } catch (UnsupportedOperationException e) {
             System.out.println("ok example1 : loot table immutable");
         }
+        try {
+            table.mobs().add("my_ghost");
+            check(false, "loot mobs immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : loot mobs immutable");
+        }
+        expectRefused(() -> {
+            table.drops();
+        }, "loot table multi sole-view drops");
+        expectRefused(() -> {
+            table.count();
+        }, "loot table multi sole-view count");
+        expectRefused(() -> {
+            table.drop("nope");
+        }, "loot table unknown mob drop");
+        expectRefused(() -> {
+            table.count("nope");
+        }, "loot table unknown mob count");
+        expectRefused(() -> {
+            LootJob.beastKind("");
+        }, "loot beast kind empty mob");
+        checkNullRefused(new Refusal[]{
+            new Refusal(() -> {
+                table.drop(null);
+            }, "loot table null mob drop"),
+            new Refusal(() -> {
+                table.count(null);
+            }, "loot table null mob count"),
+            new Refusal(() -> {
+                LootJob.beastKind(null);
+            }, "loot beast kind null mob"),
+        });
         final String oneMob = tmpLoot("mob my_beast\n  hp = 20\n"
                 + "  drop = example1.content:my_gem\n" + MOB_POLICY);
-        check(LootTable.fromFile(oneMob).drops().equals(table.drops()),
-                "loot table wires like owned");
-        check(LootTable.fromFile(oneMob).count() == table.count(),
-                "loot table wires count like owned");
+        final LootTable single = LootTable.fromFile(oneMob);
+        check(single.drops().size() == 2
+                && "example1.content:my_gem".equals(
+                        single.drops().get(LootJob.ORE))
+                && "example1.content:my_gem".equals(
+                        single.drops().get(LootJob.BEAST)),
+                "loot single-mob sole view seals agreed kinds");
+        check(single.count() == 1L
+                && single.drop("my_beast")
+                        .equals(single.drops().get(LootJob.BEAST))
+                && single.count("my_beast") == single.count(),
+                "loot single-mob per-mob equals sole");
+        check(single.dropsPerKind().size() == 2
+                && "example1.content:my_gem".equals(
+                        single.dropsPerKind().get(LootJob.ORE))
+                && "example1.content:my_gem".equals(
+                        single.dropsPerKind().get(
+                                LootJob.beastKind("my_beast"))),
+                "loot single-mob kinds stay byte-identical");
         expectRefused(() -> {
             LootTable.fromFile(tmpLoot(""));
         }, "loot table empty mob");
@@ -1416,26 +1491,28 @@ public final class ExampleCheck {
                 + "  drop = example1.content:my_gem\n" + MOB_POLICY
                 + "mob b\n  hp = 2\n"
                 + "  drop = example1.content:my_gem\n" + MOB_POLICY);
-        check(LootTable.fromFile(twoAgree).drops().equals(table.drops())
-                && LootTable.fromFile(twoAgree).count() == table.count(),
-                "loot table seals when mobs agree");
+        final LootTable agreed = LootTable.fromFile(twoAgree);
+        check("example1.content:my_gem".equals(agreed.drop("a"))
+                && "example1.content:my_gem".equals(agreed.drop("b"))
+                && agreed.count("a") == 1L && agreed.count("b") == 1L,
+                "loot table seals agreeing mobs per mob");
         expectRefused(() -> {
-            LootTable.fromFile(tmpLoot("item other_gem\n  stack = 64\n"
+            agreed.drops();
+        }, "loot table agreed multi sole-view drops");
+        final LootTable distinct = LootTable.fromFile(tmpLoot(
+                "item other_gem\n  stack = 64\n"
                     + "  label = \"other\"\n\n"
                     + "mob a\n  hp = 1\n"
                     + "  drop = example1.content:my_gem\n" + MOB_POLICY
                     + "mob b\n  hp = 2\n"
                     + "  drop = example1.content:other_gem\n"
-                    + MOB_POLICY));
-        }, "loot table diverged drop");
-        expectRefused(() -> {
-            LootTable.fromFile(tmpLoot("mob a\n  hp = 1\n"
-                    + "  drop = example1.content:my_gem\n" + MOB_POLICY
-                    + "mob b\n  hp = 2\n"
-                    + "  drop = example1.content:my_gem\n"
                     + "  cap = 4\n  budget = 1\n"
                     + "  y_min = 66\n  y_max = 68\n  drop_count = 2\n"));
-        }, "loot table diverged drop_count");
+        check("example1.content:my_gem".equals(distinct.drop("a"))
+                && "example1.content:other_gem".equals(distinct.drop("b"))
+                && distinct.count("a") == 1L
+                && distinct.count("b") == 2L,
+                "loot table seals distinct drops per mob");
         expectRefused(() -> {
             LootTable.fromFile(tmpLoot("mob a\n  hp = 1\n"
                     + "  drop = example1.content:my_gem\n" + MOB_POLICY
@@ -1670,18 +1747,26 @@ public final class ExampleCheck {
 
         // --- loot job: pure, immediate, content refs out ---
         final LootJob loot = new LootJob();
+        final String bruteKind = LootJob.beastKind("my_brute");
+        final String beastKind = LootJob.beastKind("my_beast");
         Map<String, Long> harvest = new LinkedHashMap<String, Long>();
         harvest.put("8,10,8:" + LootJob.ORE, Long.valueOf(7L));
-        harvest.put("12,10,8:" + LootJob.BEAST, Long.valueOf(7L));
+        harvest.put("12,10,8:" + beastKind, Long.valueOf(7L));
+        harvest.put("14,10,8:" + bruteKind, Long.valueOf(7L));
+        Map<String, Long> sealedCounts = new LinkedHashMap<String, Long>(
+                table.countsPerKind());
         Map<MatouId, Object> lootStates = new HashMap<MatouId, Object>();
         lootStates.put(LootJob.HARVESTED, harvest);
-        lootStates.put(LootJob.TABLE, table.drops());
-        lootStates.put(LootJob.COUNT, Long.valueOf(1L));
+        lootStates.put(LootJob.TABLE, table.dropsPerKind());
+        lootStates.put(LootJob.COUNT, sealedCounts);
         final Snapshot lsnap = new Snapshot(7L, lootStates);
         List<String> first = loot.decide(lsnap);
         check(first.equals(loot.decide(lsnap)), "loot pure");
         check(first.equals(Arrays.asList("8,10,8:example1.content:my_gem",
-                "12,10,8:example1.content:my_gem")), "loot pays gem twice");
+                "12,10,8:example1.content:my_gem",
+                "14,10,8:example1.content:my_brute_gem",
+                "14,10,8:example1.content:my_brute_gem")),
+                "loot pays distinct drops per mob");
         try {
             first.add("0,0,0:example1.content:my_gem");
             check(false, "loot decision immutable");
@@ -1697,8 +1782,11 @@ public final class ExampleCheck {
                 "loot future harvest not due");
         Map<MatouId, Object> doubleStates =
                 new HashMap<MatouId, Object>(lootStates);
-        doubleStates.put(LootJob.COUNT, Long.valueOf(2L));
-        check(loot.decide(new Snapshot(7L, doubleStates)).size() == 4,
+        Map<String, Long> doubled =
+                new LinkedHashMap<String, Long>(sealedCounts);
+        doubled.put(LootJob.ORE, Long.valueOf(2L));
+        doubleStates.put(LootJob.COUNT, doubled);
+        check(loot.decide(new Snapshot(7L, doubleStates)).size() == 5,
                 "loot count state is live");
         expectNullRefused(() -> {
             loot.decide(null);
@@ -1731,15 +1819,37 @@ public final class ExampleCheck {
             new Refusal(() -> {
                 Map<MatouId, Object> s =
                         new HashMap<MatouId, Object>(lootStates);
-                s.put(LootJob.COUNT, Long.valueOf(0L));
+                Map<String, Long> flat =
+                        new LinkedHashMap<String, Long>(sealedCounts);
+                flat.put(bruteKind, Long.valueOf(0L));
+                s.put(LootJob.COUNT, flat);
                 loot.decide(new Snapshot(7L, s));
             }, "loot zero count"),
             new Refusal(() -> {
                 Map<MatouId, Object> s =
                         new HashMap<MatouId, Object>(lootStates);
+                Map<String, Long> shortCounts =
+                        new LinkedHashMap<String, Long>(sealedCounts);
+                shortCounts.remove(bruteKind);
+                s.put(LootJob.COUNT, shortCounts);
+                loot.decide(new Snapshot(7L, s));
+            }, "loot kind without count"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(lootStates);
+                Map<String, Long> extra =
+                        new LinkedHashMap<String, Long>(sealedCounts);
+                extra.put("beast.my_ghost", Long.valueOf(1L));
+                s.put(LootJob.COUNT, extra);
+                loot.decide(new Snapshot(7L, s));
+            }, "loot count without kind"),
+            new Refusal(() -> {
+                Map<MatouId, Object> s =
+                        new HashMap<MatouId, Object>(lootStates);
                 Map<String, String> half =
-                        new HashMap<String, String>(table.drops());
-                half.remove(LootJob.BEAST);
+                        new HashMap<String, String>(
+                                table.dropsPerKind());
+                half.remove(bruteKind);
                 s.put(LootJob.TABLE, half);
                 loot.decide(new Snapshot(7L, s));
             }, "loot half table"),
@@ -2308,16 +2418,54 @@ public final class ExampleCheck {
         // the gate proves content-decided numbers, never bridge constants.
         final ExamplePack pack = ExamplePack.fromFiles(
                 "content/owned.matou", "content/additive.matou");
-        check(pack.lootDrops().size() == 2, "pack policy 2 kinds");
+        check(new ArrayList<String>(pack.lootMobs()).equals(
+                Arrays.asList("my_beast", "my_brute")),
+                "pack policy loot mobs in file order");
         check("example1.content:my_gem".equals(
-                pack.lootDrops().get(pack.lootOreKind())),
-                "pack policy ore pays gem");
-        check("example1.content:my_gem".equals(
-                pack.lootDrops().get(pack.lootBeastKind())),
-                "pack policy beast pays gem");
-        check(!pack.lootOreKind().equals(pack.lootBeastKind()),
-                "pack policy kinds distinct");
-        check(pack.lootCount() == 1L, "pack policy authorial count");
+                pack.lootDrop("my_beast"))
+                && "example1.content:my_brute_gem".equals(
+                        pack.lootDrop("my_brute")),
+                "pack policy loot distinct per-mob drops");
+        check(pack.lootCount("my_beast") == 1L
+                && pack.lootCount("my_brute") == 2L,
+                "pack policy loot distinct per-mob counts");
+        check(pack.lootOreKind().equals(LootJob.ORE)
+                && pack.lootBeastKind("my_beast").equals(
+                        LootJob.beastKind("my_beast"))
+                && pack.lootBeastKind("my_brute").equals(
+                        LootJob.beastKind("my_brute"))
+                && !pack.lootBeastKind("my_beast").equals(
+                        pack.lootBeastKind("my_brute")),
+                "pack policy loot kinds distinct per mob");
+        expectRefused(() -> {
+            pack.lootDrops();
+        }, "pack sole loot drops on multi");
+        expectRefused(() -> {
+            pack.lootCount();
+        }, "pack sole loot count on multi");
+        expectRefused(() -> {
+            pack.lootBeastKind();
+        }, "pack sole loot beast kind on multi");
+        expectRefused(() -> {
+            pack.lootDrop("nope");
+        }, "pack loot unknown mob drop");
+        expectRefused(() -> {
+            pack.lootCount("nope");
+        }, "pack loot unknown mob count");
+        expectRefused(() -> {
+            pack.lootBeastKind("nope");
+        }, "pack loot unknown mob kind");
+        checkNullRefused(new Refusal[]{
+            new Refusal(() -> {
+                pack.lootDrop(null);
+            }, "pack loot null mob drop"),
+            new Refusal(() -> {
+                pack.lootCount(null);
+            }, "pack loot null mob count"),
+            new Refusal(() -> {
+                pack.lootBeastKind(null);
+            }, "pack loot null mob kind"),
+        });
         check(new ArrayList<String>(pack.spawnMobs()).equals(
                 Arrays.asList("my_beast", "my_brute")),
                 "pack policy spawn mobs in file order");
@@ -2461,13 +2609,23 @@ public final class ExampleCheck {
         check(singlePack.spawnMobs().equals(
                 Collections.singleton("my_beast"))
                 && singlePack.spawnHp("my_beast") == singlePack.spawnHp()
+                && singlePack.lootMobs().equals(
+                        Collections.singleton("my_beast"))
+                && singlePack.lootDrop("my_beast").equals(
+                        singlePack.lootDrops().get(
+                                singlePack.lootOreKind()))
+                && singlePack.lootCount("my_beast")
+                        == singlePack.lootCount()
+                && singlePack.lootBeastKind("my_beast").equals(
+                        LootJob.beastKind("my_beast"))
+                && singlePack.lootBeastKind().equals(LootJob.BEAST)
                 && singlePack.combatWeakspots("my_beast").equals(
                         singlePack.combatWeakspots())
                 && singlePack.combatReach("my_beast")
                         == singlePack.combatReach(),
                 "pack single per-mob equals sole");
         try {
-            pack.lootDrops().put("ore", "example1.content:nope");
+            singlePack.lootDrops().put("ore", "example1.content:nope");
             check(false, "pack policy drops immutable");
         } catch (UnsupportedOperationException e) {
             System.out.println("ok example1 : pack policy drops immutable");
@@ -2481,7 +2639,15 @@ public final class ExampleCheck {
         viaCfg.configure(cfg);
         check(viaCfg.spawnMobs().equals(pack.spawnMobs()),
                 "pack configure wires policy");
-        check(viaCfg.lootDrops().equals(pack.lootDrops()),
+        check(viaCfg.lootMobs().equals(pack.lootMobs())
+                && viaCfg.lootDrop("my_beast").equals(
+                        pack.lootDrop("my_beast"))
+                && viaCfg.lootDrop("my_brute").equals(
+                        pack.lootDrop("my_brute"))
+                && viaCfg.lootCount("my_beast") == pack.lootCount("my_beast")
+                && viaCfg.lootCount("my_brute") == pack.lootCount("my_brute")
+                && viaCfg.lootBeastKind("my_brute").equals(
+                        pack.lootBeastKind("my_brute")),
                 "pack configure wires drops");
         // Policy rides every wiring path (structure/vein files never fund
         // tables): a structured, configured-structured or veined pack
@@ -2491,11 +2657,18 @@ public final class ExampleCheck {
         final ExamplePack structured = ExamplePack.fromFiles(
                 "content/owned.matou", "content/additive.matou",
                 "content/structure.matou");
-        check(structured.lootDrops().equals(pack.lootDrops()),
+        check(structured.lootMobs().equals(pack.lootMobs())
+                && structured.lootDrop("my_beast").equals(
+                        pack.lootDrop("my_beast"))
+                && structured.lootDrop("my_brute").equals(
+                        pack.lootDrop("my_brute")),
                 "pack structured wires drops");
-        check(structured.lootCount() == pack.lootCount()
+        check(structured.lootCount("my_beast") == pack.lootCount("my_beast")
+                && structured.lootCount("my_brute")
+                        == pack.lootCount("my_brute")
                 && structured.lootOreKind().equals(pack.lootOreKind())
-                && structured.lootBeastKind().equals(pack.lootBeastKind()),
+                && structured.lootBeastKind("my_beast").equals(
+                        pack.lootBeastKind("my_beast")),
                 "pack structured wires loot policy");
         check(structured.spawnMobs().equals(pack.spawnMobs())
                 && structured.spawnHp("my_beast")
@@ -2526,14 +2699,23 @@ public final class ExampleCheck {
         cfgS.put("structureFile", "content/structure.matou");
         ExamplePack viaCfgS = new ExamplePack();
         viaCfgS.configure(cfgS);
-        check(viaCfgS.lootDrops().equals(pack.lootDrops())
+        check(viaCfgS.lootMobs().equals(pack.lootMobs())
+                && viaCfgS.lootDrop("my_brute").equals(
+                        pack.lootDrop("my_brute"))
+                && viaCfgS.lootCount("my_brute")
+                        == pack.lootCount("my_brute")
                 && viaCfgS.spawnMobs().equals(pack.spawnMobs()),
                 "pack configure+structure wires policy");
         final VeinPlaceJob plainVein = VeinPlaceJob.fromFile(
                 "content/vein.matou", "ore_vein");
         final ExamplePack veined =
                 ExamplePack.fromFiles(structured, plainVein);
-        check(veined.lootDrops().equals(pack.lootDrops())
+        check(veined.lootDrop("my_beast").equals(
+                        pack.lootDrop("my_beast"))
+                && veined.lootDrop("my_brute").equals(
+                        pack.lootDrop("my_brute"))
+                && veined.lootCount("my_brute")
+                        == pack.lootCount("my_brute")
                 && veined.spawnMobs().equals(pack.spawnMobs())
                 && veined.combatWeakspots("my_beast").equals(
                         pack.combatWeakspots("my_beast"))
@@ -2547,6 +2729,10 @@ public final class ExampleCheck {
             () -> { bare.lootCount(); },
             () -> { bare.lootOreKind(); },
             () -> { bare.lootBeastKind(); },
+            () -> { bare.lootMobs(); },
+            () -> { bare.lootDrop("my_beast"); },
+            () -> { bare.lootBeastKind("my_beast"); },
+            () -> { bare.lootCount("my_beast"); },
             () -> { bare.spawnMob(); },
             () -> { bare.spawnHp(); },
             () -> { bare.spawnCap(); },

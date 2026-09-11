@@ -9,12 +9,11 @@ import java.util.Set;
  * T4 pack-driven policy holder (hub
  * {@code decisions/SPI_STATE_VOCABULARY.md}, combat policy hub
  * {@code decisions/VIRTUAL_HITBOXES.md}): the sealed loot/spawn/combat
- * tables plus the twenty-three {@code PolicyPack} accessors, out of
+ * tables plus the twenty-seven {@code PolicyPack} accessors, out of
  * {@link ExamplePack}. The owned file seals all three tables at wire time
- * ({@link #fromFile} — combat and spawn seal per mob, loot seals the
- * agreed table, the tables' own empty/diverged refusals propagate
- * untouched); structure and vein files never fund tables, so wired packs
- * carry the holder by reference. Config-independent packs (count
+ * ({@link #fromFile} — combat, spawn and loot seal per mob, the tables'
+ * own empty refusals propagate untouched); structure and vein files never
+ * fund tables, so wired packs carry the holder by reference. Config-independent packs (count
  * fixtures, never wired to a file) hold the unwired singleton
  * ({@link #unwired}) and refuse loudly instead of guessing numbers.
  * Pure, Java 8, zero deps beyond matou-spi.
@@ -39,7 +38,7 @@ public final class ExamplePolicy {
     /**
      * Seals all three tables from the owned content file once (parse-once,
      * beside the tables — never on the tick path). Loud on unreadable /
-     * zero mobs / divergent loot — never defaulted.
+     * zero mobs — never defaulted.
      */
     public static ExamplePolicy fromFile(String ownedPath) {
         return new ExamplePolicy(LootTable.fromFile(ownedPath),
@@ -91,11 +90,43 @@ public final class ExamplePolicy {
 
     public String lootBeastKind() {
         requirePolicy();
+        if (loot().mobs().size() != 1) {
+            throw new IllegalArgumentException(
+                    "E_EXAMPLE_LOOT:multi sole-view <" + loot().mobs()
+                            + "> (the legacy view serves one mob — use "
+                            + "lootBeastKind(mob))");
+        }
         return LootJob.BEAST;
     }
 
     public long lootCount() {
         return loot().count();
+    }
+
+    public Set<String> lootMobs() {
+        return loot().mobs();
+    }
+
+    public String lootDrop(String mob) {
+        return loot().drop(mob);
+    }
+
+    public String lootBeastKind(String mob) {
+        if (mob == null) {
+            throw new NullPointerException("E_EXAMPLE_LOOT:null mob "
+                    + "(want a sealed mob — see lootMobs())");
+        }
+        if (!loot().mobs().contains(mob)) {
+            throw new IllegalArgumentException(
+                    "E_EXAMPLE_LOOT:unknown mob <" + mob + "> (want one "
+                            + "of " + loot().mobs() + " — never "
+                            + "defaulted)");
+        }
+        return LootJob.beastKind(mob);
+    }
+
+    public long lootCount(String mob) {
+        return loot().count(mob);
     }
 
     public String spawnMob() {

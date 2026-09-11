@@ -35,6 +35,10 @@ item my_gem
   stack = 64
   label = "shiny"
 
+item my_brute_gem
+  stack = 64
+  label = "brute"
+
 mob my_beast
   hp = 20
   drop = example1.content:my_gem
@@ -47,12 +51,12 @@ mob my_beast
 
 mob my_brute
   hp = 30
-  drop = example1.content:my_gem
+  drop = example1.content:my_brute_gem
   cap = 4
   budget = 1
   y_min = 66
   y_max = 68
-  drop_count = 1
+  drop_count = 2
   reach = 5.0
 
 weakspot head

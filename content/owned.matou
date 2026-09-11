@@ -1,4 +1,4 @@
-syntax 1
+syntax 5
 namespace example1.content
 
 genre Block : Data
@@ -17,6 +17,10 @@ field budget : u32
 field y_min : u32
 field y_max : u32
 field drop_count : u32
+field reach : f32
+
+genre Weakspot : Data
+field mult : f32
 
 genre Feature : Data
 field block : block_ref
@@ -38,6 +42,10 @@ mob my_beast
   y_min = 66
   y_max = 68
   drop_count = 1
+  reach = 4.0
+
+weakspot head
+  mult = 2.0
 
 feature my_vein
   block = example1.content:my_ore

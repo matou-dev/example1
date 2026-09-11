@@ -336,6 +336,10 @@ public final class ExamplePack implements ConfigurablePack, PolicyPack {
     public long spawnBudget() { return policy.spawnBudget(); }
     public long spawnYMin() { return policy.spawnYMin(); }
     public long spawnYMax() { return policy.spawnYMax(); }
+    public Map<String, Float> combatWeakspots() {
+        return policy.combatWeakspots();
+    }
+    public double combatReach() { return policy.combatReach(); }
     public MatouJob<List<String>> lootJob() { return policy.lootJob(); }
     public MatouJob<List<String>> spawnJob() { return policy.spawnJob(); }
 }

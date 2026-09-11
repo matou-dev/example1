@@ -6,10 +6,11 @@ import java.util.Map;
 
 /**
  * T4 pack-driven policy holder (hub
- * {@code decisions/SPI_STATE_VOCABULARY.md}): the sealed loot/spawn tables
- * plus the twelve {@code PolicyPack} accessors, out of
- * {@link ExamplePack}. The owned file seals both tables at wire time
- * ({@link #fromFile} — single mob funds both, the tables' own
+ * {@code decisions/SPI_STATE_VOCABULARY.md}, combat policy hub
+ * {@code decisions/VIRTUAL_HITBOXES.md}): the sealed loot/spawn/combat
+ * tables plus the fourteen {@code PolicyPack} accessors, out of
+ * {@link ExamplePack}. The owned file seals all three tables at wire time
+ * ({@link #fromFile} — single mob funds all three, the tables' own
  * multi/empty refusals propagate untouched); structure and vein files
  * never fund tables, so wired packs carry the holder by reference.
  * Config-independent packs (count fixtures, never wired to a file) hold
@@ -19,29 +20,33 @@ import java.util.Map;
 public final class ExamplePolicy {
     private final LootTable loot;
     private final SpawnTable spawn;
+    private final CombatTable combat;
 
-    private ExamplePolicy(LootTable loot, SpawnTable spawn) {
+    private ExamplePolicy(LootTable loot, SpawnTable spawn,
+            CombatTable combat) {
         this.loot = loot;
         this.spawn = spawn;
+        this.combat = combat;
     }
 
     /** Holder with no sealed tables: every accessor refuses loudly. */
     public static ExamplePolicy unwired() {
-        return new ExamplePolicy(null, null);
+        return new ExamplePolicy(null, null, null);
     }
 
     /**
-     * Seals both tables from the owned content file once (parse-once,
+     * Seals all three tables from the owned content file once (parse-once,
      * beside the tables — never on the tick path). Loud on unreadable /
      * zero or several mobs — never defaulted.
      */
     public static ExamplePolicy fromFile(String ownedPath) {
         return new ExamplePolicy(LootTable.fromFile(ownedPath),
-                SpawnTable.fromFile(ownedPath));
+                SpawnTable.fromFile(ownedPath),
+                CombatTable.fromFile(ownedPath));
     }
 
     /**
-     * T4 pack-driven policy: the owned file seals both tables at wire
+     * T4 pack-driven policy: the owned file seals all three tables at wire
      * time, so the forge wire reads plain data plus fresh jobs off this
      * holder and drops its content imports. Config-independent packs
      * (count fixtures built by the int constructors, never wired to a
@@ -49,7 +54,7 @@ public final class ExamplePolicy {
      * guessing numbers.
      */
     private void requirePolicy() {
-        if (loot == null || spawn == null) {
+        if (loot == null || spawn == null || combat == null) {
             throw new IllegalStateException("E_EXAMPLE_POLICY:unwired "
                     + "(pack never wired to an owned file — want fromFiles)");
         }
@@ -65,6 +70,12 @@ public final class ExamplePolicy {
     private SpawnTable spawn() {
         requirePolicy();
         return spawn;
+    }
+
+    /** Sealed combat table, or the loud unwired refusal (never a guess). */
+    private CombatTable combat() {
+        requirePolicy();
+        return combat;
     }
 
     public Map<String, String> lootDrops() {
@@ -107,6 +118,14 @@ public final class ExamplePolicy {
 
     public long spawnYMax() {
         return spawn().yMax();
+    }
+
+    public Map<String, Float> combatWeakspots() {
+        return combat().weakspots();
+    }
+
+    public double combatReach() {
+        return combat().reach();
     }
 
     public MatouJob<List<String>> lootJob() {

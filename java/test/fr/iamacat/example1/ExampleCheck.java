@@ -139,6 +139,28 @@ public final class ExampleCheck {
     }
 
     /**
+     * Writes a temp content file with a syntax-5 mob+weakspot header plus
+     * the given stanzas (combat refusal fixtures must not live in
+     * {@code content/}: every file there must stay dual-parsable and
+     * single-mob with a funded table).
+     */
+    private static String tmpCombat(String stanza) {
+        String body = "syntax 5\nnamespace example1.content\n\n"
+                + "genre Mob : Data\nfield reach : f32\n\n"
+                + "genre Weakspot : Data\nfield mult : f32\n\n"
+                + stanza;
+        try {
+            java.nio.file.Path p =
+                    Files.createTempFile("combattable", ".matou");
+            Files.write(p, body.getBytes(StandardCharsets.UTF_8));
+            p.toFile().deleteOnExit();
+            return p.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("tmpCombat: " + e.getMessage(), e);
+        }
+    }
+
+    /**
      * Authorial spawn/loot policy fragment every passing mob stanza
      * carries (mirrors {@code content/owned.matou} values — the gate
      * proves content-decided numbers, never bridge constants).
@@ -1386,6 +1408,63 @@ public final class ExampleCheck {
             }, "loot table null path"),
         });
 
+        // --- combat table: content weakspots + reach, never defaulted ---
+        final CombatTable combat =
+                CombatTable.fromFile("content/owned.matou");
+        check(combat.weakspots().size() == 1
+                && combat.weakspots().get("head") != null
+                && combat.weakspots().get("head").floatValue() == 2.0F,
+                "combat table wires head 2x");
+        check(combat.reach() == 4.0d, "combat table wires authorial reach");
+        try {
+            combat.weakspots().put("head", Float.valueOf(3.0F));
+            check(false, "combat table immutable");
+        } catch (UnsupportedOperationException e) {
+            System.out.println("ok example1 : combat table immutable");
+        }
+        final String oneBeast = tmpCombat("mob my_beast\n  reach = 4.0\n\n"
+                + "weakspot head\n  mult = 2.0\n");
+        check(CombatTable.fromFile(oneBeast).weakspots().equals(
+                combat.weakspots()), "combat table wires like owned");
+        check(CombatTable.fromFile(oneBeast).reach() == combat.reach(),
+                "combat table wires reach like owned");
+        expectRefused(() -> {
+            CombatTable.fromFile(tmpCombat(""));
+        }, "combat table empty mob");
+        expectRefused(() -> {
+            CombatTable.fromFile(tmpCombat("mob a\n  reach = 4.0\n\n"
+                    + "mob b\n  reach = 4.0\n\n"
+                    + "weakspot head\n  mult = 2.0\n"));
+        }, "combat table multi mob");
+        expectRefused(() -> {
+            CombatTable.fromFile(tmpCombat("mob noreach\n\n"
+                    + "weakspot head\n  mult = 2.0\n"));
+        }, "combat table missing reach");
+        expectRefused(() -> {
+            CombatTable.fromFile(tmpCombat("mob flat\n  reach = 0.0\n\n"
+                    + "weakspot head\n  mult = 2.0\n"));
+        }, "combat table zero reach");
+        expectRefused(() -> {
+            CombatTable.fromFile(tmpCombat("mob lonely\n  reach = 4.0\n"));
+        }, "combat table empty weakspots");
+        expectRefused(() -> {
+            CombatTable.fromFile(tmpCombat("mob flat\n  reach = 4.0\n\n"
+                    + "weakspot head\n  mult = 0.0\n"));
+        }, "combat table zero mult");
+        expectRefused(() -> {
+            CombatTable.fromFile(tmpCombat("mob dup\n  reach = 4.0\n\n"
+                    + "weakspot head\n  mult = 2.0\n\n"
+                    + "weakspot head\n  mult = 1.5\n"));
+        }, "combat table dupe bone");
+        expectRefused(() -> {
+            CombatTable.fromFile("content/no-such.matou");
+        }, "combat table missing file");
+        checkNullRefused(new Refusal[]{
+            new Refusal(() -> {
+                CombatTable.fromFile(null);
+            }, "combat table null path"),
+        });
+
         // --- loot job: pure, immediate, content refs out ---
         final LootJob loot = new LootJob();
         Map<String, Long> harvest = new LinkedHashMap<String, Long>();
@@ -1785,6 +1864,12 @@ public final class ExampleCheck {
         check(pack.spawnBudget() == 1L, "pack policy spawn budget");
         check(pack.spawnYMin() == 66L && pack.spawnYMax() == 68L,
                 "pack policy spawn y band");
+        check(pack.combatWeakspots().size() == 1
+                && pack.combatWeakspots().get("head") != null
+                && pack.combatWeakspots().get("head").floatValue()
+                        == 2.0F,
+                "pack policy combat head 2x");
+        check(pack.combatReach() == 4.0d, "pack policy combat reach");
         check(pack.lootJob() instanceof LootJob,
                 "pack serves the loot job");
         check(pack.spawnJob() instanceof SpawnJob,
@@ -1842,7 +1927,9 @@ public final class ExampleCheck {
         final ExamplePack veined =
                 ExamplePack.fromFiles(structured, plainVein);
         check(veined.lootDrops().equals(pack.lootDrops())
-                && veined.spawnMob().equals(pack.spawnMob()),
+                && veined.spawnMob().equals(pack.spawnMob())
+                && veined.combatWeakspots().equals(pack.combatWeakspots())
+                && veined.combatReach() == pack.combatReach(),
                 "pack veined wires policy");
         final ExamplePack bare = new ExamplePack();
         final ExamplePack counts = new ExamplePack(8, 4);
@@ -1859,9 +1946,12 @@ public final class ExampleCheck {
             () -> { bare.spawnYMax(); },
             () -> { bare.lootJob(); },
             () -> { bare.spawnJob(); },
+            () -> { bare.combatWeakspots(); },
+            () -> { bare.combatReach(); },
             () -> { counts.lootDrops(); },
             () -> { counts.spawnMob(); },
             () -> { counts.spawnJob(); },
+            () -> { counts.combatReach(); },
         };
         for (Runnable probe : unwired) {
             try {
